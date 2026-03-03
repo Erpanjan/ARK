@@ -140,7 +140,7 @@ export default function ProductVisionDemo() {
 
   const runPolicyPipeline = useCallback(async (payload: RetryPayload) => {
     setPolicy(buildReferenceFallbackPolicy('loading'));
-    setCurrentScreen(6);
+    setCurrentScreen(5);
     setIsPolicyLoading(true);
     setPolicyError(null);
     setRetryPayload(payload);
@@ -166,6 +166,7 @@ export default function ProductVisionDemo() {
       setPolicy(body.policy as FinalPolicy);
       setIsPolicyLoading(false);
       setPolicyError(null);
+      setCurrentScreen(6);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Policy generation failed';
       setPolicy(buildReferenceFallbackPolicy('failed', message));
