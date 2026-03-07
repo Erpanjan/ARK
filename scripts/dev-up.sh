@@ -32,11 +32,13 @@ export HOST="${HOST:-0.0.0.0}"
 export NEOENGINE_PORT="${NEOENGINE_PORT:-8000}"
 export CASHFLOW_PORT="${CASHFLOW_PORT:-8001}"
 export ADVISOR_PORT="${ADVISOR_PORT:-8002}"
+export AI_COMPANION_PORT="${AI_COMPANION_PORT:-8010}"
 export FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 
 export NEOENGINE_API_URL="${NEOENGINE_API_URL:-http://localhost:${NEOENGINE_PORT}}"
 export CASHFLOW_API_URL="${CASHFLOW_API_URL:-http://localhost:${CASHFLOW_PORT}}"
 export ADVISOR_SERVICE_URL="${ADVISOR_SERVICE_URL:-http://localhost:${ADVISOR_PORT}}"
+export AI_COMPANION_SERVICE_URL="${AI_COMPANION_SERVICE_URL:-http://localhost:${AI_COMPANION_PORT}}"
 export ADVISOR_REQUEST_TIMEOUT_SECONDS="${ADVISOR_REQUEST_TIMEOUT_SECONDS:-180}"
 
 resolve_python_bin() {
@@ -112,11 +114,65 @@ PY
   fi
 }
 
+check_ai_companion_runtime() {
+  local python_bin="$1"
+  if ! command -v "$python_bin" >/dev/null 2>&1 && [[ ! -x "$python_bin" ]]; then
+    echo "AI companion runtime check failed: python binary not found: $python_bin" >&2
+    exit 1
+  fi
+
+  local missing
+  if ! missing="$("$python_bin" - <<'PY'
+required = ["flask", "flask_cors", "google.genai"]
+missing = []
+for name in required:
+    try:
+        __import__(name, fromlist=["*"])
+    except Exception:
+        missing.append(name)
+print(",".join(missing))
+PY
+)"; then
+    missing="flask,flask_cors,google.genai"
+  fi
+
+  if [[ -n "$missing" ]]; then
+    echo "AI companion runtime check: installing missing modules for ${python_bin}: ${missing}" >&2
+    if ! "$python_bin" -m pip install -r "$ROOT_DIR/ai-companion/scripts/requirements.txt" >/dev/null 2>&1; then
+      echo "AI companion runtime check failed: automatic install did not succeed." >&2
+      echo "Install companion requirements manually with the same interpreter:" >&2
+      echo "  ${python_bin} -m pip install -r ai-companion/scripts/requirements.txt" >&2
+      exit 1
+    fi
+
+    # Re-check after installation to ensure runtime is now valid.
+    if ! missing="$("$python_bin" - <<'PY'
+required = ["flask", "flask_cors", "google.genai"]
+missing = []
+for name in required:
+    try:
+        __import__(name, fromlist=["*"])
+    except Exception:
+        missing.append(name)
+print(",".join(missing))
+PY
+)"; then
+      missing="flask,flask_cors,google.genai"
+    fi
+    if [[ -n "$missing" ]]; then
+      echo "AI companion runtime check failed after install attempt: still missing ${missing}" >&2
+      exit 1
+    fi
+    echo "AI companion runtime check: dependencies ready." >&2
+  fi
+}
+
 NEOENGINE_PYTHON="$(resolve_python_bin "${NEOENGINE_PYTHON:-}")"
 CASHFLOW_PYTHON="$(resolve_cashflow_python_bin "${CASHFLOW_PYTHON:-}")"
 ADVISOR_PYTHON="$(resolve_python_bin "${ADVISOR_PYTHON:-}")"
 
 check_cashflow_mesa_runtime "$CASHFLOW_PYTHON"
+check_ai_companion_runtime "$ADVISOR_PYTHON"
 echo "Using CASHFLOW_PYTHON=${CASHFLOW_PYTHON}"
 
 PIDS=()
@@ -151,6 +207,7 @@ preflight_ports() {
   check_port_free "advisor" "$ADVISOR_PORT"
   check_port_free "cashflow" "$CASHFLOW_PORT"
   check_port_free "neoengine" "$NEOENGINE_PORT"
+  check_port_free "ai-companion" "$AI_COMPANION_PORT"
 
   if [[ "${#PORT_CONFLICTS[@]}" -gt 0 ]]; then
     echo "Port preflight failed. Resolve conflicts before starting services:" >&2
@@ -197,6 +254,7 @@ preflight_ports
 start_service "neoengine" "$ROOT_DIR/neoengine-service/api" env PORT="$NEOENGINE_PORT" HOST="$HOST" LOCAL_DEV="$LOCAL_DEV" "$NEOENGINE_PYTHON" app.py
 start_service "cashflow" "$ROOT_DIR/cashflow-modeling-service/api" env PORT="$CASHFLOW_PORT" "$CASHFLOW_PYTHON" app.py
 start_service "advisor" "$ROOT_DIR/solution-agent-service" env ADVISOR_PORT="$ADVISOR_PORT" "$ADVISOR_PYTHON" app.py
+start_service "ai-companion" "$ROOT_DIR/ai-companion/scripts" env AI_COMPANION_PORT="$AI_COMPANION_PORT" "$ADVISOR_PYTHON" app.py
 start_service "frontend" "$ROOT_DIR/frontend" env PORT="$FRONTEND_PORT" pnpm dev
 
 echo
@@ -205,6 +263,7 @@ echo "Frontend: http://localhost:${FRONTEND_PORT}"
 echo "Advisor:  http://localhost:${ADVISOR_PORT}/health"
 echo "Cashflow: http://localhost:${CASHFLOW_PORT}/health"
 echo "Neo:      http://localhost:${NEOENGINE_PORT}/health"
+echo "Companion:http://localhost:${AI_COMPANION_PORT}/health"
 echo "Press Ctrl+C to stop all services."
 
 set +e

@@ -1,8 +1,9 @@
 # Full App Sessions
 
-This repo includes four runtime services that must be up for the end-to-end app flow:
+This repo includes five runtime services that must be up for the end-to-end app flow:
 - `frontend` (Next.js)
 - `solution-agent-service` (Flask)
+- `ai-companion` (Flask, Gemini chat endpoint for AI Companion UI)
 - `cashflow-modeling-service` API (Flask)
 - `neoengine-service` API (Flask)
 
@@ -47,6 +48,7 @@ cd frontend && pnpm install
 
 - Frontend: `http://localhost:3000`
 - Advisor health: `http://localhost:8002/health`
+- AI Companion health: `http://localhost:8010/health`
 - Cashflow health: `http://localhost:8001/health`
 - Neo health: `http://localhost:8000/health`
 
@@ -55,19 +57,19 @@ cd frontend && pnpm install
 If needed, override ports before the command:
 
 ```bash
-FRONTEND_PORT=3001 ADVISOR_PORT=8102 CASHFLOW_PORT=8101 NEOENGINE_PORT=8100 ./scripts/dev-up.sh
+FRONTEND_PORT=3001 ADVISOR_PORT=8102 AI_COMPANION_PORT=8110 CASHFLOW_PORT=8101 NEOENGINE_PORT=8100 ./scripts/dev-up.sh
 ```
 
 The same environment variable overrides are honored by:
 
 ```bash
-FRONTEND_PORT=3001 ADVISOR_PORT=8102 CASHFLOW_PORT=8101 NEOENGINE_PORT=8100 ./scripts/dev-down.sh
+FRONTEND_PORT=3001 ADVISOR_PORT=8102 AI_COMPANION_PORT=8110 CASHFLOW_PORT=8101 NEOENGINE_PORT=8100 ./scripts/dev-down.sh
 ```
 
 ## Port Conflicts (`EADDRINUSE`)
 
 `./scripts/dev-up.sh` now performs a mandatory preflight using `lsof` on required ports
-(`3000`, `8002`, `8001`, `8000` by default). If any port is already in use, startup exits
+(`3000`, `8002`, `8010`, `8001`, `8000` by default). If any port is already in use, startup exits
 immediately with:
 - Which service expected that port
 - The PID/command currently listening

@@ -22,6 +22,7 @@ require_cmd lsof
 export NEOENGINE_PORT="${NEOENGINE_PORT:-8000}"
 export CASHFLOW_PORT="${CASHFLOW_PORT:-8001}"
 export ADVISOR_PORT="${ADVISOR_PORT:-8002}"
+export AI_COMPANION_PORT="${AI_COMPANION_PORT:-8010}"
 export FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 
 collect_listener_pids() {
@@ -92,6 +93,7 @@ stop_port() {
 }
 
 stop_port "frontend" "$FRONTEND_PORT"
+stop_port "ai-companion" "$AI_COMPANION_PORT"
 stop_port "advisor" "$ADVISOR_PORT"
 stop_port "cashflow" "$CASHFLOW_PORT"
 stop_port "neoengine" "$NEOENGINE_PORT"

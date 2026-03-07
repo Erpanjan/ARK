@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 import { PhoneFrame } from './product-vision/shared/PhoneFrame';
@@ -13,7 +13,7 @@ import { Screen4 } from './product-vision/screens/Screen4';
 import { ScreenFinancialDiagnoses } from './product-vision/screens/ScreenFinancialDiagnoses';
 import { Screen5 } from './product-vision/screens/Screen5';
 import { Screen6 } from './product-vision/screens/Screen6';
-import { Screen7 } from './product-vision/screens/Screen7';
+import { Screen7, type CompanionChatMessage } from './product-vision/screens/Screen7';
 import { useConsultationVoiceAgent } from '@/hooks/useConsultationVoiceAgent';
 import { usePolicyExplanationVoiceAgent } from '@/hooks/usePolicyExplanationVoiceAgent';
 import { buildReferenceFallbackPolicy } from '@/lib/policy/fallback';
@@ -24,6 +24,8 @@ type RetryPayload = {
   turns: ConsultationTurn[];
   completionReason: 'agent' | 'user';
 };
+
+type CompanionStage = 'chat' | 'awaiting_confirmation' | 'consultation_active';
 
 const normalizeText = (value: string): string =>
   value
@@ -68,6 +70,22 @@ export default function ProductVisionDemo() {
   const [isPolicyLoading, setIsPolicyLoading] = useState(false);
   const [policyError, setPolicyError] = useState<string | null>(null);
   const [retryPayload, setRetryPayload] = useState<RetryPayload | null>(null);
+  const [companionStage, setCompanionStage] = useState<CompanionStage>('chat');
+  const [pendingCompanionReplies, setPendingCompanionReplies] = useState(0);
+  const [companionMessages, setCompanionMessages] = useState<CompanionChatMessage[]>([
+    {
+      id: 'sys-1',
+      role: 'system',
+      text: 'TODAY 09:24',
+    },
+    {
+      id: 'assistant-welcome',
+      role: 'assistant',
+      text: 'I am your AI Companion. Tell me what is on your mind, and I can help you sort your next financial step.',
+    },
+  ]);
+  const companionMessagesRef = useRef<CompanionChatMessage[]>(companionMessages);
+  const companionStageRef = useRef<CompanionStage>(companionStage);
 
   const {
     status: consultationVoiceStatus,
@@ -203,6 +221,94 @@ export default function ProductVisionDemo() {
     void runPolicyPipeline(retryPayload);
   }, [retryPayload, runPolicyPipeline]);
 
+  useEffect(() => {
+    companionMessagesRef.current = companionMessages;
+  }, [companionMessages]);
+
+  useEffect(() => {
+    companionStageRef.current = companionStage;
+  }, [companionStage]);
+
+  const handleSendCompanionMessage = useCallback(
+    async (text: string) => {
+      const content = text.trim();
+      if (!content) {
+        return;
+      }
+
+      const userMessage: CompanionChatMessage = {
+        id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        role: 'user',
+        text: content,
+      };
+      const nextMessages = [...companionMessagesRef.current, userMessage];
+      companionMessagesRef.current = nextMessages;
+      setCompanionMessages(nextMessages);
+      setPendingCompanionReplies((prev) => prev + 1);
+
+      try {
+        const response = await fetch('/api/ai-companion/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messages: nextMessages
+              .filter((message) => message.role !== 'system')
+              .map((message) => ({
+                role: message.role,
+                content: message.text,
+              })),
+            state: {
+              stage: companionStageRef.current,
+            },
+          }),
+        });
+
+        const body = await response.json();
+        if (!response.ok || !body?.success) {
+          throw new Error(body?.error || `AI companion request failed (${response.status})`);
+        }
+
+        const assistantText = String(body.assistant_message || '').trim() || 'Could you share a bit more detail?';
+        const assistantMessage: CompanionChatMessage = {
+          id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          role: 'assistant',
+          text: assistantText,
+        };
+        setCompanionMessages((prev) => {
+          const updated = [...prev, assistantMessage];
+          companionMessagesRef.current = updated;
+          return updated;
+        });
+
+        const nextStage = (body?.state?.stage as CompanionStage) || 'chat';
+        setCompanionStage(nextStage);
+
+        if (body.ui_action === 'activate_consultation_phone') {
+          setCurrentScreen(4);
+        }
+      } catch (error) {
+        const fallbackMessage: CompanionChatMessage = {
+          id: `assistant-error-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          role: 'assistant',
+          text:
+            error instanceof Error
+              ? `I hit an issue reaching the companion service: ${error.message}`
+              : 'I hit an issue reaching the companion service.',
+        };
+        setCompanionMessages((prev) => {
+          const updated = [...prev, fallbackMessage];
+          companionMessagesRef.current = updated;
+          return updated;
+        });
+      } finally {
+        setPendingCompanionReplies((prev) => Math.max(0, prev - 1));
+      }
+    },
+    []
+  );
+
   const screens = useMemo(
     () => [
       { id: 1, component: <ScreenLogo onNext={() => setCurrentScreen(2)} /> },
@@ -301,18 +407,11 @@ export default function ProductVisionDemo() {
         id: 10,
         component: (
           <Screen7
-            voiceStatus={consultationVoiceStatus}
-            voiceError={consultationVoiceError}
-            isVoiceMuted={consultationVoiceMuted}
-            onStartVoiceSession={() => {
-              void startConsultationVoiceSession();
-            }}
-            onEndVoiceSession={() => {
-              void endConsultationVoiceSession();
-            }}
-            onToggleMute={() => {
-              void toggleConsultationMute();
-            }}
+            onCallAgent={() => setCurrentScreen(4)}
+            messages={companionMessages}
+            isSendingMessage={pendingCompanionReplies > 0}
+            companionStage={companionStage}
+            onSendMessage={handleSendCompanionMessage}
           />
         ),
       },
@@ -339,8 +438,11 @@ export default function ProductVisionDemo() {
       derivedPolicyVoiceSectionKey,
       policyVoiceStatus,
       policyError,
+      companionMessages,
+      pendingCompanionReplies,
+      companionStage,
+      handleSendCompanionMessage,
       isPolicyVoicePlaying,
-      startConsultationVoiceSession,
       startPolicyVoiceExplanation,
       stopPolicyVoiceExplanation,
       toggleConsultationMute,
