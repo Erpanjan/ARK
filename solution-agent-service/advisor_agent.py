@@ -94,10 +94,13 @@ class AdvisorConfig:
         fallback_models = [m.strip() for m in fallback_raw.split(",") if m.strip()]
 
         # Single source of truth for Gemini keys: repo root .env.
-        root_env_path = Path(__file__).resolve().parent.parent / ".env"
+        repo_root = Path(__file__).resolve().parent.parent
+        root_env_path = repo_root / ".env"
+        root_evn_path = repo_root / ".evn"
         root_env: Dict[str, str] = {}
-        if root_env_path.exists():
-            parsed = dotenv_values(root_env_path)
+        source_env_path = root_env_path if root_env_path.exists() else root_evn_path
+        if source_env_path.exists():
+            parsed = dotenv_values(source_env_path)
             root_env = {str(k): str(v or "") for k, v in parsed.items()}
 
         gemini_key = (
@@ -199,31 +202,6 @@ class AdvisorAgent:
                 str(Path(__file__).resolve().parent / "logs" / "gemini_prompt_debug.ndjson"),
             )
         )
-
-    def generate_policy(
-        self,
-        client_payload: Dict[str, Any],
-        advisor_request: str = "",
-    ) -> Dict[str, Any]:
-        """Generate markdown policy from Step-1 policy JSON."""
-        step1_result = self.generate_step1_policy_json(
-            client_payload=client_payload,
-            advisor_request=advisor_request,
-        )
-        step1_policy = step1_result.get("step1_policy")
-        if not isinstance(step1_policy, dict):
-            raise ValueError("Advisor returned invalid Step-1 policy payload")
-        policy_markdown = self._render_step1_policy_markdown(step1_policy)
-
-        return {
-            "success": True,
-            "model_used": step1_result.get("model_used", "unknown"),
-            "fallback_used": False,
-            "policy_markdown": policy_markdown,
-            "step1_policy": step1_policy,
-            # Backward compatibility for legacy callers expecting this key.
-            "final_policy": step1_policy,
-        }
 
     def generate_step1_policy_json(
         self,
@@ -1196,7 +1174,7 @@ class AdvisorAgent:
         state: AgentState,
     ) -> Dict[str, Any]:
         """Execute numeric cashflow simulation tool call."""
-        payload = copy.deepcopy(client_payload)
+        payload = copy.deepcopy(self._resolve_cashflow_payload(client_payload))
 
         # Allows the model to control all account types and any nested inputs.
         payload_override = args.get("payload_override")
@@ -1489,15 +1467,15 @@ class AdvisorAgent:
         """Create initial prompt for the agent loop."""
         request_text = advisor_request.strip() or "No additional request constraints provided."
         return (
-            "Analyze the following client profile and generate a financial planning policy.\n\n"
+            "Analyze the following Stage-1 client profile package and generate a financial planning policy.\n\n"
             "Objectives:\n"
-            "1) Understand client circumstances with cashflow simulation.\n"
-            "2) Identify financial gaps between current wealth trajectory and future expenses/goals.\n"
+            "1) Use the provided client_financial_json, narrative understanding, and diagnosed gaps as source-of-truth.\n"
+            "2) Validate and refine financial gap understanding with cashflow simulation.\n"
             "3) Use Neo engine for investment-policy recommendation.\n"
             "4) Ensure recommendations explain why they address the gaps.\n\n"
             "Additional request from advisor/user:\n"
             f"{request_text}\n\n"
-            "Client payload JSON:\n"
+            "Stage-1 profile package JSON:\n"
             f"{json.dumps(client_payload, indent=2, ensure_ascii=True)}"
         )
 
@@ -1718,52 +1696,10 @@ class AdvisorAgent:
             },
         }
 
-    def _render_step1_policy_markdown(self, step1_policy: Dict[str, Any]) -> str:
-        """Render Step-1 policy schema JSON into deterministic markdown."""
-        policy_title = str(step1_policy.get("policy_title", "") or "").strip() or "Recommended Policy"
-        executive_summary = str(step1_policy.get("executive_summary", "") or "").strip()
-        sections = step1_policy.get("sections")
-        portfolio = step1_policy.get("portfolio")
-        execution = step1_policy.get("execution")
-
-        lines: List[str] = [f"# {policy_title}"]
-        if executive_summary:
-            lines.extend(["", executive_summary])
-
-        if isinstance(sections, list):
-            for section in sections:
-                if not isinstance(section, dict):
-                    continue
-                sec_title = str(section.get("title", "") or "").strip()
-                sec_content = str(section.get("content", "") or "").strip()
-                if not sec_title or not sec_content:
-                    continue
-                lines.extend(["", f"## {sec_title}", "", sec_content])
-
-        if isinstance(portfolio, dict):
-            currency = str(portfolio.get("currency", "USD") or "USD").upper()
-            total_transfer = portfolio.get("total_transfer")
-            lines.extend(["", "## Portfolio"])
-            if isinstance(total_transfer, (int, float)):
-                lines.append(f"- Total Transfer: {currency} {float(total_transfer):,.2f}")
-
-        if isinstance(execution, dict):
-            remedy_name = str(execution.get("remedy_name", "") or "").strip()
-            funding_source = str(execution.get("funding_source", "") or "").strip()
-            deployment = str(execution.get("capital_deployment_timeline", "") or "").strip()
-            lines.extend(["", "## Execution"])
-            if remedy_name:
-                lines.append(f"- Remedy: {remedy_name}")
-            if funding_source:
-                lines.append(f"- Funding Source: {funding_source}")
-            if deployment:
-                lines.append(f"- Capital Deployment Timeline: {deployment}")
-
-        return "\n".join(lines).strip()
-
     def _estimate_total_investment(self, client_payload: Dict[str, Any]) -> float:
         """Estimate investable total from account balance-like fields."""
-        accounts = client_payload.get("accounts", {})
+        financial_payload = self._resolve_cashflow_payload(client_payload)
+        accounts = financial_payload.get("accounts", {})
         total = 0.0
 
         def walk(value: Any, key_name: str = "") -> None:
@@ -1788,7 +1724,9 @@ class AdvisorAgent:
 
         # Voice-consultation mode may omit structured accounts; infer investable
         # capital from transcript cues like "7 million in bank deposit".
-        transcript = client_payload.get("consultation_transcript")
+        transcript = financial_payload.get("consultation_transcript")
+        if not isinstance(transcript, dict):
+            transcript = client_payload.get("consultation_transcript")
         turns = transcript.get("turns") if isinstance(transcript, dict) else None
         if not isinstance(turns, list):
             return 0.0
@@ -1862,10 +1800,46 @@ class AdvisorAgent:
             raise FileNotFoundError(f"Prompt file not found: {path}")
         return path.read_text(encoding="utf-8")
 
+    def _resolve_cashflow_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Resolve the cashflow-ready payload from direct or Stage-1 package input."""
+        if not isinstance(payload, dict):
+            return {}
+
+        if isinstance(payload.get("client_financial_json"), dict):
+            return payload.get("client_financial_json", {})
+
+        return payload
+
+    def _validate_cashflow_payload_shape(self, payload: Dict[str, Any]) -> None:
+        """Validate shape required for cashflow simulation."""
+        required_top_fields = ["client_profile", "income", "expenses"]
+        missing = [field for field in required_top_fields if field not in payload]
+        if missing:
+            raise ValueError(f"Missing required fields: {', '.join(missing)}")
+
+        client_profile = payload.get("client_profile", {})
+        if not isinstance(client_profile, dict):
+            raise ValueError("client_profile must be an object")
+        if "age" not in client_profile or "retirement_age" not in client_profile:
+            raise ValueError("client_profile.age and client_profile.retirement_age are required")
+
+        income = payload.get("income", {})
+        if not isinstance(income, dict) or "salary" not in income:
+            raise ValueError("income.salary is required")
+
+        expenses = payload.get("expenses", {})
+        if not isinstance(expenses, dict) or "base_spending" not in expenses:
+            raise ValueError("expenses.base_spending is required")
+
     def _validate_client_payload(self, payload: Dict[str, Any]) -> None:
         """Validate payload shape required for policy generation."""
         if not isinstance(payload, dict):
             raise ValueError("Request payload must be a JSON object")
+
+        resolved_payload = self._resolve_cashflow_payload(payload)
+        if resolved_payload is not payload:
+            self._validate_cashflow_payload_shape(resolved_payload)
+            return
 
         # Voice-consultation runs may provide transcript context only.
         # In that mode we avoid forcing synthetic profile/income/expense data.
@@ -1875,22 +1849,7 @@ class AdvisorAgent:
             if isinstance(turns, list) and any(isinstance(t, dict) for t in turns):
                 return
 
-        required_top_fields = ["client_profile", "income", "expenses"]
-        missing = [field for field in required_top_fields if field not in payload]
-        if missing:
-            raise ValueError(f"Missing required fields: {', '.join(missing)}")
-
-        client_profile = payload.get("client_profile", {})
-        if "age" not in client_profile or "retirement_age" not in client_profile:
-            raise ValueError("client_profile.age and client_profile.retirement_age are required")
-
-        income = payload.get("income", {})
-        if "salary" not in income:
-            raise ValueError("income.salary is required")
-
-        expenses = payload.get("expenses", {})
-        if "base_spending" not in expenses:
-            raise ValueError("expenses.base_spending is required")
+        self._validate_cashflow_payload_shape(payload)
 
     def _normalize_args(self, args: Any) -> Dict[str, Any]:
         """Normalize Gemini function args into a plain dictionary."""

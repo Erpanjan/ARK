@@ -69,49 +69,29 @@ If repo root `.env` has `PORT=3000` for frontend, advisor will still stay on `80
 - `POST /advisor/api/v1/generate-policy-json`
 - `POST /advisor/api/v1/generate-step1-policy-json`
 - `POST /advisor/api/v1/consultation-ingest`
-- `POST /advisor/api/v1/generate-policy`
+- `GET /advisor/api/v1/consultation-ingest/latest`
+- `GET /advisor/api/v1/consultation-ingest/<ingest_id>`
 
 ## Request Example
 
 ```json
 {
-  "advisor_request": "Focus on retirement sufficiency and near-term liquidity.",
-  "client_profile": {
-    "name": "Sample Client",
-    "age": 38,
-    "retirement_age": 62,
-    "life_expectancy": 90,
-    "dependents": 2
+  "consultation_transcript": {
+    "session_id": "consult-123",
+    "turns": [
+      { "speaker": "agent", "text": "What prompted you to seek planning support?", "ts_start_ms": 1710000000000 },
+      { "speaker": "client", "text": "I want to be ready for retirement and college costs.", "ts_start_ms": 1710000005000 }
+    ]
   },
-  "accounts": {
-    "bank": { "balance": 45000 },
-    "brokerage": { "balance": 120000 },
-    "401k": { "pretax_balance": 180000, "contrib_percent": 10, "company_match_percent": 4 },
-    "ira": { "balance": 40000, "type": "roth" }
-  },
-  "income": {
-    "salary": 160000,
-    "yearly_increase": 3.0
-  },
-  "expenses": {
-    "base_spending": 90000,
-    "yearly_increase": 3.0,
-    "housing": { "type": "own", "mortgage_balance": 350000 }
-  },
-  "goals": [
-    { "name": "Retirement", "target_amount": 3200000, "target_year": 2050 }
-  ],
-  "asset_allocation": {},
-  "has_disability_insurance": false,
-  "has_life_insurance": true,
-  "life_insurance_coverage": 350000
+  "advisor_request": "Focus on retirement sufficiency and liquidity resilience."
 }
 ```
+
+You can also provide `consultation_ingest_id` instead of `consultation_transcript` after calling `POST /advisor/api/v1/consultation-ingest`.
 
 ## Response Shape
 
 `POST /advisor/api/v1/generate-policy-json` returns one structured JSON payload used as single source of truth for menu/detail/execution UI.
-`POST /advisor/api/v1/generate-policy` returns `text/markdown` directly on success (legacy/optional output format).
 Error responses remain JSON.
 
 ## Notes

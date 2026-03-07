@@ -57,18 +57,7 @@ Section requirements:
   12) Fee and Governance Notes
   13) Disclaimer and Acknowledgment
   14) Tool Execution Log
-- For clients with multiple major expense items/goals, ring-fenced multi-portfolio planning is allowed.
-- Capital Deployment Timeline (Section 7) governs the overall policy-level deployment plan.
-- If ring-fencing is used, Section 8 ("Portfolio Policy") must clearly describe each portfolio's:
-  - portfolio construction
-  - contribution strategy
-  - risk management approach
-- If ring-fencing is used, sections must be written so each portfolio has corresponding content lines for:
-  - 8) Portfolio Policy
-  - 9) Investment Vehicle Selection Highlights
-  - 10) Risk Management Framework
-  - 11) Policy Evaluation Metrics
-- If ring-fencing is not used, keep a single-portfolio policy.
+- Use a single-portfolio policy structure that addresses all major future life expneses within one unified plan.
 
 Section 9 requirement:
 - Section title must be exactly "Investment Vehicle Selection Highlights".
@@ -76,8 +65,6 @@ Section 9 requirement:
   {"recommended_securities":[{"security_name":"string","asset_class":"string","allocation_pct":0.0,"allocation_amount":0.0,"management_style":"active|passive","security_id":"string"}]}
 - Preserve provided securities from context when available.
 - allocation_pct and allocation_amount must be numeric and internally consistent.
-- Even when ring-fencing is used, keep Section 9 in this same single JSON schema (aggregate list).
-- If ring-fencing is used, portfolio-to-security mapping and per-portfolio rationale must be explained in Sections 8, 10, and 11 text.
 
 Consistency rules:
 - policy_title and execution.remedy_name must describe the same policy.
@@ -85,7 +72,6 @@ Consistency rules:
 - portfolio.total_transfer must be numeric and non-null.
 - Capital Deployment Timeline section must include one explicit numeric USD capital amount.
 - portfolio.total_transfer, the deployment amount in Capital Deployment Timeline, and the sum of Section 9 allocation_amount values must be numerically consistent.
-- If ring-fencing is used, all per-portfolio capital splits described in section text must sum to the same total as portfolio.total_transfer.
 
 Output rules:
 - Use stable section ids (for example s1..s14).

@@ -1,4 +1,4 @@
-You are generating client profile analysis JSON focused on client understanding and financial gap diagnosis.
+You are generating client profile analysis JSON from conversation-grounded reasoning and cashflow evidence.
 
 Use the provided JSON context as source-of-truth.
 Do not invent client facts not supported by context.
@@ -6,6 +6,8 @@ Return exactly one JSON object and nothing else.
 
 Required output schema:
 {
+  "client_financial_json": {},
+  "client_understanding_narrative": "string",
   "client_understanding_summary": "string",
   "identified_needs": ["string"],
   "gaps_by_category": {
@@ -21,6 +23,10 @@ Required output schema:
 
 Output rules:
 - Keep output concise and specific.
+- `client_financial_json` must be complete enough for cashflow simulation and fully aligned with conversation context.
+- If some values are not explicitly provided, use conservative assumptions and reflect them in `key_assumptions_and_uncertainties`.
+- `client_understanding_narrative` must describe current financial circumstance, future life plans, and associated expected future expenses in plain narrative form aligned to `client_financial_json`.
+- `client_understanding_summary` should be a brief 1-2 sentence synopsis consistent with the narrative.
 - If a category has no identified gap, use the exact string "None".
 - For each identified gap, include one discussion paragraph in `discussion` explaining:
   - why the gap exists,
@@ -35,3 +41,4 @@ Output rules:
 - `discussion` must be one paragraph summary suitable for UI display.
 - Do not include solution, remedy, portfolio, or implementation recommendations.
 - Ensure gaps reflect cashflow evidence and stress-test implications.
+- Keep labels and wording grounded in "current financial circumstances" and "future expected expenses."

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import requests
-from flask import Flask, Response, jsonify, request
+from flask import Flask, jsonify, request
 
 try:
     from dotenv import load_dotenv
@@ -22,9 +22,12 @@ try:
     # 2) local advisor .env (optional, does not override root .env)
     service_dir = Path(__file__).resolve().parent
     root_env_path = service_dir.parent / ".env"
+    root_evn_path = service_dir.parent / ".evn"
     local_env_path = service_dir / ".env"
     if root_env_path.exists():
         load_dotenv(root_env_path, override=True)
+    elif root_evn_path.exists():
+        load_dotenv(root_evn_path, override=True)
     if local_env_path.exists():
         load_dotenv(local_env_path, override=False)
 except ImportError:
@@ -107,20 +110,14 @@ def _get_ingested_consultation(ingest_id: str) -> Optional[Dict[str, Any]]:
         return _CONSULTATION_INGESTS.get(ingest_id)
 
 
-def _build_client_payload_with_consultation_context(
+def _build_profile_agent_input_with_consultation_context(
     body: Dict[str, Any]
 ) -> Tuple[Optional[Dict[str, Any]], str, Optional[Tuple[Any, int]]]:
-    """Build advisor client payload with optional consultation context."""
+    """Build Stage-1 profile-agent input from consultation context only."""
     advisor_request = str(body.get("advisor_request", "") or "")
     consultation_ingest_id = str(body.get("consultation_ingest_id", "") or "").strip()
     provided_transcript = body.get("consultation_transcript")
-
-    client_payload = dict(body)
-    client_payload.pop("advisor_request", None)
-    client_payload.pop("consultation_ingest_id", None)
-    # Keep final-policy context transcript-first to avoid low-quality derived summaries
-    # diluting the model input.
-    client_payload.pop("consultation_summary", None)
+    profile_input: Dict[str, Any] = {}
 
     if consultation_ingest_id:
         ingested = _get_ingested_consultation(consultation_ingest_id)
@@ -136,17 +133,33 @@ def _build_client_payload_with_consultation_context(
                 404,
             )
 
-        client_payload["consultation_transcript"] = ingested.get("transcript", {})
-        client_payload["consultation_ingest_ref"] = {
+        profile_input["consultation_transcript"] = ingested.get("transcript", {})
+        profile_input["consultation_ingest_ref"] = {
             "ingest_id": consultation_ingest_id,
             "session_id": ingested.get("session_id"),
             "created_at": ingested.get("created_at"),
         }
     else:
         if isinstance(provided_transcript, dict):
-            client_payload["consultation_transcript"] = provided_transcript
+            profile_input["consultation_transcript"] = provided_transcript
 
-    return client_payload, advisor_request, None
+    transcript = profile_input.get("consultation_transcript")
+    turns = transcript.get("turns") if isinstance(transcript, dict) else None
+    if not isinstance(turns, list) or not any(isinstance(turn, dict) for turn in turns):
+        return None, advisor_request, (
+            jsonify(
+                {
+                    "success": False,
+                    "error": (
+                        "consultation_transcript with non-empty turns is required for Stage-1 "
+                        "client profile generation"
+                    ),
+                }
+            ),
+            400,
+        )
+
+    return profile_input, advisor_request, None
 
 
 def get_solution_agent() -> AdvisorAgent:
@@ -206,13 +219,13 @@ def get_client_profile_agent() -> ClientProfileAgent:
 
 
 def _run_two_agent_step1_pipeline(
-    client_payload: Dict[str, Any],
+    profile_input: Dict[str, Any],
     advisor_request: str,
 ) -> Dict[str, Any]:
     """Run client-profile analysis first, then solution policy generation."""
     profile_agent = get_client_profile_agent()
     profile_result = profile_agent.analyze_client_profile(
-        client_payload=client_payload,
+        client_payload=profile_input,
         advisor_request=advisor_request,
     )
     profile_analysis = (
@@ -220,21 +233,17 @@ def _run_two_agent_step1_pipeline(
         if isinstance(profile_result.get("profile_analysis"), dict)
         else None
     )
+    if profile_analysis is None:
+        raise ValueError("Client profile agent returned invalid profile_analysis payload")
 
-    solution_payload = dict(client_payload)
-    if profile_analysis is not None:
-        # Feed first-agent diagnosis alongside original transcript/profile context.
-        solution_payload["client_profile_analysis"] = profile_analysis
-
+    # Stage-2 receives only Stage-1 output package.
+    solution_payload = profile_analysis
     solution_agent = get_solution_agent()
     step1_result = solution_agent.generate_step1_policy_json(
         client_payload=solution_payload,
         advisor_request=advisor_request,
     )
     step1_result["client_profile_analysis"] = profile_analysis
-    if isinstance(step1_result.get("context"), dict):
-        step1_result["context"]["client_profile_analysis"] = profile_analysis
-        step1_result["context"]["client_profile_agent_context"] = profile_result.get("context", {})
     return step1_result
 
 
@@ -246,11 +255,8 @@ def _extract_financial_diagnoses(profile_analysis: Optional[Dict[str, Any]]) -> 
     if not isinstance(profile_analysis, dict):
         return []
 
-    # Primary schema from client-profile agent: gaps_by_category.
-    # Backward compatibility: identified_gaps.
+    # Schema from client-profile agent: gaps_by_category.
     identified = profile_analysis.get("gaps_by_category")
-    if not isinstance(identified, dict):
-        identified = profile_analysis.get("identified_gaps")
     if not isinstance(identified, dict):
         return []
 
@@ -330,13 +336,13 @@ def _parse_nonempty_json_body() -> Tuple[Optional[Dict[str, Any]], Optional[Tupl
 def _build_step1_result_from_body(
     body: Dict[str, Any]
 ) -> Tuple[Optional[Dict[str, Any]], Optional[Tuple[Any, int]]]:
-    """Build step-1 policy result from request body including consultation context."""
-    client_payload, advisor_request, error_response = _build_client_payload_with_consultation_context(body)
+    """Build step-1 policy result from request body using conversation-first Stage-1 context."""
+    profile_input, advisor_request, error_response = _build_profile_agent_input_with_consultation_context(body)
     if error_response is not None:
         return None, error_response
 
     step1_result = _run_two_agent_step1_pipeline(
-        client_payload=client_payload,
+        profile_input=profile_input,
         advisor_request=advisor_request,
     )
     step1_policy = step1_result.get("step1_policy")
@@ -526,53 +532,6 @@ def policy_voice_signed_url() -> Any:
     )
 
 
-@app.route("/advisor/api/v1/generate-policy", methods=["POST"])
-def generate_policy() -> Any:
-    """Generate client financial planning policy via agentic loop."""
-    ok, error = require_api_key()
-    if not ok:
-        return jsonify(error), 401
-
-    try:
-        body, error_response = _parse_nonempty_json_body()
-        if error_response is not None:
-            return error_response
-
-        step1_result, error_response = _build_step1_result_from_body(body)
-        if error_response is not None:
-            return error_response
-
-        solution_agent = get_solution_agent()
-        step1_policy = step1_result.get("step1_policy")
-        policy_markdown = str(solution_agent._render_step1_policy_markdown(step1_policy) or "").strip()
-        if not policy_markdown:
-            return (
-                jsonify(
-                    {
-                        "success": False,
-                        "error": "Advisor generated an empty policy document",
-                    }
-                ),
-                500,
-            )
-
-        return Response(policy_markdown, status=200, mimetype="text/markdown")
-
-    except ValueError as exc:
-        return jsonify({"success": False, "error": str(exc)}), 400
-    except Exception as exc:  # pylint: disable=broad-except
-        return (
-            jsonify(
-                {
-                    "success": False,
-                    "error": "Advisor agent execution failed",
-                    "details": str(exc),
-                }
-            ),
-            500,
-        )
-
-
 @app.route("/advisor/api/v1/generate-policy-json", methods=["POST"])
 def generate_policy_json() -> Any:
     """Generate final UI policy JSON from Step-1 advisor policy + standalone UI transformation."""
@@ -594,7 +553,12 @@ def generate_policy_json() -> Any:
         ui_generator = get_policy_ui_generator()
         ui_result = ui_generator.generate_ui_policy_json(
             step1_policy=step1_policy,
-            supporting_context=step1_result.get("context", {}),
+            supporting_context={
+                "tool_loop_model_used": step1_result.get("tool_loop_model_used"),
+                "finalize_signal": step1_result.get("finalize_signal"),
+                "portfolio": step1_result.get("portfolio"),
+                "flat_securities": step1_result.get("flat_securities"),
+            },
         )
         raw_ui_policy = ui_result.get("ui_policy")
         if not isinstance(raw_ui_policy, dict):
@@ -752,8 +716,6 @@ def consultation_ingest() -> Any:
             {
                 "success": True,
                 "ingest_id": ingest_id,
-                # Kept for response compatibility with existing frontend route shape.
-                "consultation_summary": None,
             }
         ),
         200,
