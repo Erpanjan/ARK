@@ -123,7 +123,7 @@ check_ai_companion_runtime() {
 
   local missing
   if ! missing="$("$python_bin" - <<'PY'
-required = ["flask", "flask_cors", "google.genai"]
+required = ["flask", "flask_cors", "google.genai", "openai"]
 missing = []
 for name in required:
     try:
@@ -133,7 +133,7 @@ for name in required:
 print(",".join(missing))
 PY
 )"; then
-    missing="flask,flask_cors,google.genai"
+    missing="flask,flask_cors,google.genai,openai"
   fi
 
   if [[ -n "$missing" ]]; then
@@ -147,7 +147,7 @@ PY
 
     # Re-check after installation to ensure runtime is now valid.
     if ! missing="$("$python_bin" - <<'PY'
-required = ["flask", "flask_cors", "google.genai"]
+required = ["flask", "flask_cors", "google.genai", "openai"]
 missing = []
 for name in required:
     try:
@@ -157,7 +157,7 @@ for name in required:
 print(",".join(missing))
 PY
 )"; then
-      missing="flask,flask_cors,google.genai"
+      missing="flask,flask_cors,google.genai,openai"
     fi
     if [[ -n "$missing" ]]; then
       echo "AI companion runtime check failed after install attempt: still missing ${missing}" >&2

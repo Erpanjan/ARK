@@ -20,6 +20,7 @@ import hmac
 import json
 import os
 import re
+import sys
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
@@ -28,8 +29,19 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from dotenv import dotenv_values
-from google import genai
-from google.genai import types
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from shared.llm import (
+    LLMClientFactory,
+    LLMGenerateRequest,
+    LLMMessage,
+    ToolSchema,
+    dedupe_model_chain,
+    parse_fallback_chain,
+)
 
 
 REQUIRED_STEP1_POLICY_FIELDS: List[str] = [
@@ -70,8 +82,8 @@ class AdvisorConfig:
     """Runtime configuration for the advisor agent."""
 
     gemini_api_key: str
-    gemini_model: str = "models/gemini-3-pro-preview"
-    fallback_models: List[str] = field(default_factory=list)
+    openai_api_key: str = ""
+    stage_models: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     cashflow_api_url: str = "http://localhost:8001"
     cashflow_api_key: str = ""
@@ -82,7 +94,7 @@ class AdvisorConfig:
     neo_default_weight_type: str = "dynamic"
 
     request_timeout_seconds: int = 180
-    gemini_timeout_ms: int = 90000
+    llm_timeout_ms: int = 90000
     max_tool_iterations: int = 6
     max_cashflow_calls: int = 6
     max_neo_calls: int = 6
@@ -90,10 +102,7 @@ class AdvisorConfig:
     @classmethod
     def from_env(cls) -> "AdvisorConfig":
         """Build configuration from environment variables."""
-        fallback_raw = os.getenv("ADVISOR_GEMINI_FALLBACK_MODELS", "")
-        fallback_models = [m.strip() for m in fallback_raw.split(",") if m.strip()]
-
-        # Single source of truth for Gemini keys: repo root .env.
+        # Single source of truth for keys/settings: repo root .env.
         repo_root = Path(__file__).resolve().parent.parent
         root_env_path = repo_root / ".env"
         root_evn_path = repo_root / ".evn"
@@ -103,22 +112,109 @@ class AdvisorConfig:
             parsed = dotenv_values(source_env_path)
             root_env = {str(k): str(v or "") for k, v in parsed.items()}
 
+        def _env(name: str) -> str:
+            return (os.getenv(name, "").strip() or root_env.get(name, "").strip())
+
         gemini_key = (
-            root_env.get("GOOGLE_GENAI_API_KEY", "").strip()
-            or root_env.get("GEMINI_API_KEY", "").strip()
+            _env("GOOGLE_GENAI_API_KEY")
+            or _env("GEMINI_API_KEY")
         )
+        openai_key = _env("OPENAI_API_KEY")
+
+        advisor_default_model = _env("ADVISOR_GEMINI_MODEL") or "models/gemini-3-pro-preview"
+        advisor_legacy_fallbacks: List[Tuple[str, str]] = []
+        legacy_fallback_raw = _env("ADVISOR_GEMINI_FALLBACK_MODELS")
+        if legacy_fallback_raw:
+            advisor_legacy_fallbacks = [("gemini", m.strip()) for m in legacy_fallback_raw.split(",") if m.strip()]
+
+        def _stage_model_config(
+            stage_name: str,
+            provider_key: str,
+            model_key: str,
+            fallback_key: str,
+            legacy_model_key: str = "",
+            default_provider: str = "gemini",
+            default_model: str = "",
+            legacy_fallbacks: Optional[List[Tuple[str, str]]] = None,
+        ) -> Dict[str, Any]:
+            provider = _env(provider_key).lower() or default_provider
+            model = _env(model_key)
+            if not model and legacy_model_key:
+                model = _env(legacy_model_key)
+            if not model:
+                model = default_model
+            fallback_raw = _env(fallback_key)
+            fallbacks = parse_fallback_chain(fallback_raw) if fallback_raw else (legacy_fallbacks or [])
+            chain = dedupe_model_chain((provider, model), fallbacks)
+            if not chain:
+                raise ValueError(f"No model chain configured for {stage_name}")
+            return {
+                "primary_provider": chain[0][0],
+                "primary_model": chain[0][1],
+                "fallbacks": chain[1:],
+                "chain": chain,
+            }
+
+        stage_models = {
+            "client_profile_tool_loop": _stage_model_config(
+                stage_name="client_profile_tool_loop",
+                provider_key="CLIENT_PROFILE_TOOL_LOOP_PROVIDER",
+                model_key="CLIENT_PROFILE_TOOL_LOOP_MODEL",
+                fallback_key="CLIENT_PROFILE_TOOL_LOOP_FALLBACKS",
+                legacy_model_key="ADVISOR_GEMINI_MODEL",
+                default_model=advisor_default_model,
+                legacy_fallbacks=advisor_legacy_fallbacks,
+            ),
+            "client_profile_synthesis": _stage_model_config(
+                stage_name="client_profile_synthesis",
+                provider_key="CLIENT_PROFILE_SYNTHESIS_PROVIDER",
+                model_key="CLIENT_PROFILE_SYNTHESIS_MODEL",
+                fallback_key="CLIENT_PROFILE_SYNTHESIS_FALLBACKS",
+                legacy_model_key="ADVISOR_GEMINI_MODEL",
+                default_model=advisor_default_model,
+                legacy_fallbacks=advisor_legacy_fallbacks,
+            ),
+            "solution_tool_loop": _stage_model_config(
+                stage_name="solution_tool_loop",
+                provider_key="SOLUTION_TOOL_LOOP_PROVIDER",
+                model_key="SOLUTION_TOOL_LOOP_MODEL",
+                fallback_key="SOLUTION_TOOL_LOOP_FALLBACKS",
+                legacy_model_key="ADVISOR_GEMINI_MODEL",
+                default_model=advisor_default_model,
+                legacy_fallbacks=advisor_legacy_fallbacks,
+            ),
+            "solution_synthesis": _stage_model_config(
+                stage_name="solution_synthesis",
+                provider_key="SOLUTION_SYNTHESIS_PROVIDER",
+                model_key="SOLUTION_SYNTHESIS_MODEL",
+                fallback_key="SOLUTION_SYNTHESIS_FALLBACKS",
+                legacy_model_key="ADVISOR_GEMINI_MODEL",
+                default_model=advisor_default_model,
+                legacy_fallbacks=advisor_legacy_fallbacks,
+            ),
+            "policy_ui": _stage_model_config(
+                stage_name="policy_ui",
+                provider_key="POLICY_UI_PROVIDER",
+                model_key="POLICY_UI_MODEL",
+                fallback_key="POLICY_UI_FALLBACKS",
+                legacy_model_key="ADVISOR_UI_GEMINI_MODEL",
+                default_model=_env("ADVISOR_UI_GEMINI_MODEL") or advisor_default_model,
+                legacy_fallbacks=advisor_legacy_fallbacks,
+            ),
+        }
+
         neo_api_url = (
-            os.getenv("NEOENGINE_API_URL", "").strip()
-            or os.getenv("PYTHON_NEO_ENGINE_URL", "").strip()
+            _env("NEOENGINE_API_URL")
+            or _env("PYTHON_NEO_ENGINE_URL")
             or "http://localhost:8000"
         )
         explicit_neo_api_key = (
-            os.getenv("NEOENGINE_API_KEY", "").strip()
-            or os.getenv("NEO_ENGINE_API_KEY", "").strip()
+            _env("NEOENGINE_API_KEY")
+            or _env("NEO_ENGINE_API_KEY")
         )
         neo_api_secret = (
-            os.getenv("NEO_API_SECRET", "").strip()
-            or os.getenv("API_SECRET", "").strip()
+            _env("NEO_API_SECRET")
+            or _env("API_SECRET")
         )
         # Prefer HMAC-derived key when a shared secret is available so advisor and
         # Neo remain aligned even if a stale explicit key exists in env.
@@ -131,26 +227,26 @@ class AdvisorConfig:
         else:
             neo_api_key = ""
         cashflow_api_url = (
-            os.getenv("CASHFLOW_API_URL", "").strip()
-            or os.getenv("CASHFLOW_MODEL_URL", "").strip()
+            _env("CASHFLOW_API_URL")
+            or _env("CASHFLOW_MODEL_URL")
             or "http://localhost:8001"
         )
 
         return cls(
             gemini_api_key=gemini_key,
-            gemini_model=os.getenv("ADVISOR_GEMINI_MODEL", "models/gemini-3-pro-preview").strip(),
-            fallback_models=fallback_models,
+            openai_api_key=openai_key,
+            stage_models=stage_models,
             cashflow_api_url=cashflow_api_url.rstrip("/"),
-            cashflow_api_key=os.getenv("CASHFLOW_API_KEY", "").strip(),
+            cashflow_api_key=_env("CASHFLOW_API_KEY"),
             neo_api_url=neo_api_url.rstrip("/"),
             neo_api_key=neo_api_key,
-            neo_default_risk_profile=os.getenv("NEOENGINE_DEFAULT_RISK_PROFILE", "RP3").strip(),
-            neo_default_weight_type=os.getenv("NEOENGINE_DEFAULT_WEIGHT_TYPE", "dynamic").strip(),
-            request_timeout_seconds=int(os.getenv("ADVISOR_REQUEST_TIMEOUT_SECONDS", "180")),
-            gemini_timeout_ms=int(os.getenv("ADVISOR_GEMINI_TIMEOUT_MS", "90000")),
-            max_tool_iterations=int(os.getenv("ADVISOR_MAX_TOOL_ITERATIONS", "6")),
-            max_cashflow_calls=int(os.getenv("ADVISOR_MAX_CASHFLOW_CALLS", "6")),
-            max_neo_calls=int(os.getenv("ADVISOR_MAX_NEO_CALLS", "6")),
+            neo_default_risk_profile=_env("NEOENGINE_DEFAULT_RISK_PROFILE") or "RP3",
+            neo_default_weight_type=_env("NEOENGINE_DEFAULT_WEIGHT_TYPE") or "dynamic",
+            request_timeout_seconds=int(_env("ADVISOR_REQUEST_TIMEOUT_SECONDS") or "180"),
+            llm_timeout_ms=int(_env("ADVISOR_LLM_TIMEOUT_MS") or _env("ADVISOR_GEMINI_TIMEOUT_MS") or "90000"),
+            max_tool_iterations=int(_env("ADVISOR_MAX_TOOL_ITERATIONS") or "6"),
+            max_cashflow_calls=int(_env("ADVISOR_MAX_CASHFLOW_CALLS") or "6"),
+            max_neo_calls=int(_env("ADVISOR_MAX_NEO_CALLS") or "6"),
         )
 
 
@@ -175,20 +271,12 @@ class AgentState:
 
 
 class AdvisorAgent:
-    """Financial advisor agent that coordinates tool calls via Gemini."""
+    """Financial advisor agent that coordinates tool calls via configured LLM providers."""
 
     def __init__(self, config: AdvisorConfig, prompts_dir: Path):
-        if not config.gemini_api_key:
-            raise ValueError(
-                "Gemini API key is required (set GOOGLE_GENAI_API_KEY or GEMINI_API_KEY)"
-            )
-
         self.config = config
         self.prompts_dir = prompts_dir
-        self.client = genai.Client(
-            api_key=config.gemini_api_key,
-            http_options=types.HttpOptions(timeout=config.gemini_timeout_ms),
-        )
+        self._validate_provider_keys()
         # Temporary prompt logging to inspect exact Gemini request contexts.
         self._prompt_log_enabled = os.getenv("ADVISOR_TEMP_LOG_PROMPTS", "true").strip().lower() not in {
             "0",
@@ -202,6 +290,22 @@ class AdvisorAgent:
                 str(Path(__file__).resolve().parent / "logs" / "gemini_prompt_debug.ndjson"),
             )
         )
+
+    def _validate_provider_keys(self) -> None:
+        """Validate API-key availability for configured stage providers."""
+        providers: set[str] = set()
+        for row in self.config.stage_models.values():
+            for provider_name, _ in row.get("chain", []):
+                providers.add(str(provider_name or "").strip().lower())
+        if "gemini" in providers and not self.config.gemini_api_key:
+            raise ValueError(
+                "Gemini stage configured but Gemini API key is missing "
+                "(set GOOGLE_GENAI_API_KEY or GEMINI_API_KEY)"
+            )
+        if "openai" in providers and not self.config.openai_api_key:
+            raise ValueError(
+                "OpenAI stage configured but OPENAI_API_KEY is missing"
+            )
 
     def generate_step1_policy_json(
         self,
@@ -240,8 +344,9 @@ class AdvisorAgent:
             f"{json.dumps(context, indent=2, ensure_ascii=True)}"
         )
 
-        response, model_used = self._generate_with_fallback(
-            contents=[types.Content(role="user", parts=[types.Part(text=user_prompt)])],
+        response, model_used, provider_used = self._generate_with_fallback(
+            stage_name="solution_synthesis",
+            messages=[LLMMessage(role="user", content=user_prompt)],
             system_instruction=(
                 "You are a senior financial planner. Produce one JSON object only."
             ),
@@ -249,10 +354,7 @@ class AdvisorAgent:
             temperature=0.2,
         )
 
-        raw_text = (response.text or "").strip()
-        if not raw_text:
-            extracted_text, _ = self._extract_parts(response)
-            raw_text = "\n".join(extracted_text).strip()
+        raw_text = response.text.strip()
 
         step1_policy = self._parse_json_object(raw_text)
         self._validate_step1_policy_schema(step1_policy)
@@ -260,11 +362,13 @@ class AdvisorAgent:
         return {
             "success": True,
             "model_used": model_used,
+            "provider_used": provider_used,
             "step1_policy": step1_policy,
             "context": context,
             "portfolio": portfolio,
             "flat_securities": flat_securities,
             "tool_loop_model_used": loop_result.get("model_used", "unknown"),
+            "tool_loop_provider_used": loop_result.get("provider_used", "unknown"),
             "finalize_signal": loop_result.get("finalize_signal"),
         }
 
@@ -284,39 +388,40 @@ class AdvisorAgent:
     ) -> Dict[str, Any]:
         """Run the ReAct-style tool loop using agent_system instructions."""
         state = AgentState()
-        conversation: List[types.Content] = [
-            types.Content(
+        conversation: List[LLMMessage] = [
+            LLMMessage(
                 role="user",
-                parts=[types.Part(text=self._build_initial_prompt(client_payload, advisor_request))],
+                content=self._build_initial_prompt(client_payload, advisor_request),
             )
         ]
         finalize_signal: Optional[Dict[str, Any]] = None
         model_used = "unknown"
+        provider_used = "unknown"
 
         for iteration in range(1, self.config.max_tool_iterations + 1):
-            response, model_used = self._generate_with_fallback(
-                contents=conversation,
+            response, model_used, provider_used = self._generate_with_fallback(
+                stage_name=self._tool_loop_stage_name(),
+                messages=conversation,
                 system_instruction=self._read_prompt("agent_system.txt"),
                 use_tools=True,
                 temperature=0.2,
             )
-            model_content = self._first_model_content(response)
-            if model_content is not None:
-                conversation.append(model_content)
+            if response.messages:
+                conversation.extend(response.messages)
 
-            response_texts, function_calls = self._extract_parts(response)
+            response_texts = [response.text] if response.text else []
+            function_calls = response.tool_calls
             self._log_debug(
                 f"Tool loop iteration={iteration} function_calls={len(function_calls)}"
             )
 
             if function_calls:
                 for function_call in function_calls:
-                    function_name = str(getattr(function_call, "name", "") or "").strip()
+                    function_name = str(function_call.name or "").strip()
                     canonical_name = self._canonical_tool_name(function_name)
-                    raw_args = getattr(function_call, "args", None)
                     result, call_id = self._execute_tool_call(
                         function_name=function_name,
-                        raw_args=raw_args,
+                        raw_args=function_call.arguments,
                         client_payload=client_payload,
                         state=state,
                         iteration=iteration,
@@ -326,45 +431,47 @@ class AdvisorAgent:
                         f"iteration={iteration} call_id={call_id} name={function_name} "
                         f"success={bool(result.get('success', False))}"
                     )
+                    function_payload = self._build_function_response_payload(
+                        function_name=canonical_name,
+                        call_id=call_id,
+                        state=state,
+                    )
                     conversation.append(
-                        types.Content(
-                            role="user",
-                            parts=[
-                                types.Part(
-                                    function_response=types.FunctionResponse(
-                                        name=canonical_name,
-                                        response=self._build_function_response_payload(
-                                            function_name=canonical_name,
-                                            call_id=call_id,
-                                            state=state,
-                                        ),
-                                    )
-                                )
-                            ],
+                        LLMMessage(
+                            role="tool",
+                            name=canonical_name,
+                            tool_call_id=function_call.id or call_id,
+                            content=json.dumps(function_payload, ensure_ascii=True),
                         )
                     )
-                self._compact_conversation_tool_responses(conversation, state)
                 continue
 
             finalize_signal = self._extract_finalize_signal(response_texts)
             if finalize_signal is not None:
                 if not self._has_post_optimize_cashflow_validation(state):
                     self._log_debug(
-                        "Finalize blocked: optimizePortfolio ran without successful post-optimize runCashflowModel validation."
+                        "Finalize blocked: required optimizePortfolio call/validation conditions not met."
                     )
                     if iteration < self.config.max_tool_iterations:
+                        has_successful_optimize = any(
+                            str(call.get("tool", "")).strip() == "optimizePortfolio"
+                            and bool(call.get("success", False))
+                            for call in state.tool_audit
+                        )
+                        reminder_text = (
+                            "Constraint reminder: before finalizing, run one successful runCashflowModel "
+                            "validation."
+                        )
+                        if has_successful_optimize:
+                            reminder_text = (
+                                "Constraint reminder: optimizePortfolio has already run. "
+                                "Before finalizing, run one successful runCashflowModel "
+                                "validation using post-optimize assumptions/allocation."
+                            )
                         conversation.append(
-                            types.Content(
+                            LLMMessage(
                                 role="user",
-                                parts=[
-                                    types.Part(
-                                        text=(
-                                            "Constraint reminder: optimizePortfolio has already run. "
-                                            "Before finalizing, run one successful runCashflowModel "
-                                            "validation using post-optimize assumptions/allocation."
-                                        )
-                                    )
-                                ],
+                                content=reminder_text,
                             )
                         )
                         finalize_signal = None
@@ -378,7 +485,7 @@ class AdvisorAgent:
         if finalize_signal is None:
             finalize_signal = {
                 "action": "finalize",
-                "analysis": "No explicit finalize signal before iteration cap; proceeding with best-effort synthesis.",
+                "analysis": "No explicit finalize signal before iteration cap; proceeding with strongest available synthesis from validated evidence.",
                 "reason": "iteration_cap",
             }
             self._log_debug(
@@ -389,6 +496,7 @@ class AdvisorAgent:
             "state": state,
             "finalize_signal": finalize_signal,
             "model_used": model_used,
+            "provider_used": provider_used,
         }
 
     def _extract_finalize_signal(self, texts: List[str]) -> Optional[Dict[str, Any]]:
@@ -403,6 +511,15 @@ class AdvisorAgent:
 
     def _has_post_optimize_cashflow_validation(self, state: AgentState) -> bool:
         """Return True when finalize is allowed under optimize->cashflow validation gate."""
+        has_any_successful_cashflow = any(
+            str(call.get("tool", "")).strip() == "runCashflowModel"
+            and bool(call.get("success", False))
+            for call in state.tool_audit
+        )
+        # Always require at least one successful cashflow validation before finalize.
+        if not has_any_successful_cashflow:
+            return False
+
         last_optimize_success_idx = -1
         for idx, call in enumerate(state.tool_audit):
             if (
@@ -625,48 +742,48 @@ class AdvisorAgent:
 
     def _generate_with_fallback(
         self,
-        contents: List[types.Content],
+        stage_name: str,
+        messages: List[LLMMessage],
         system_instruction: str,
         use_tools: bool,
         temperature: float,
-    ) -> Tuple[Any, str]:
-        """Generate model output using the configured Gemini model."""
-        model_candidates: List[str] = []
-        for candidate in [self.config.gemini_model, *self.config.fallback_models]:
-            model_name = str(candidate or "").strip()
-            if model_name and model_name not in model_candidates:
-                model_candidates.append(model_name)
+    ) -> Tuple[Any, str, str]:
+        """Generate model output using stage-configured provider/model fallback chain."""
+        stage_config = self.config.stage_models.get(stage_name, {})
+        model_candidates = stage_config.get("chain", [])
         if not model_candidates:
-            raise RuntimeError("Gemini generation failed: no model candidates configured")
+            raise RuntimeError(f"LLM generation failed: no model candidates configured for stage {stage_name}")
 
         last_error: Optional[Exception] = None
 
-        for model_name in model_candidates:
+        for provider_name, model_name in model_candidates:
             try:
                 self._append_prompt_log(
                     {
-                        "stage": "advisor_generate_content",
+                        "stage": stage_name,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "provider": provider_name,
                         "model": model_name,
                         "system_instruction": system_instruction,
                         "use_tools": use_tools,
                         "temperature": temperature,
-                        "contents": self._serialize_contents(contents),
+                        "contents": self._serialize_messages(messages),
                     }
                 )
-                cfg: Dict[str, Any] = {
-                    "system_instruction": system_instruction,
-                    "temperature": temperature,
-                }
-                if use_tools:
-                    cfg["tools"] = [self._tool_declaration()]
-
-                response = self.client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                    config=types.GenerateContentConfig(**cfg),
+                adapter = LLMClientFactory.create(
+                    provider=provider_name,
+                    google_api_key=self.config.gemini_api_key,
+                    openai_api_key=self.config.openai_api_key,
+                    timeout_ms=self.config.llm_timeout_ms,
                 )
-                return response, model_name
+                request = LLMGenerateRequest(
+                    messages=messages,
+                    system_instruction=system_instruction,
+                    temperature=temperature,
+                    tools=self._tool_declaration() if use_tools else [],
+                )
+                response = adapter.generate(request=request, model=model_name)
+                return response, model_name, provider_name
             except Exception as exc:  # pylint: disable=broad-except
                 last_error = exc
                 message = str(exc)
@@ -683,7 +800,7 @@ class AdvisorAgent:
                 # Fail fast for unexpected errors.
                 break
 
-        raise RuntimeError(f"Gemini generation failed: {last_error}")
+        raise RuntimeError(f"LLM generation failed: {last_error}")
 
     def _append_prompt_log(self, payload: Dict[str, Any]) -> None:
         """Append prompt-debug payload as NDJSON; never raise to caller."""
@@ -697,38 +814,27 @@ class AdvisorAgent:
             # Temporary diagnostics should never break advisor execution.
             pass
 
-    def _serialize_contents(self, contents: List[types.Content]) -> List[Dict[str, Any]]:
-        """Serialize Gemini request contents into JSON-safe dicts for debug logs."""
+    def _serialize_messages(self, messages: List[LLMMessage]) -> List[Dict[str, Any]]:
+        """Serialize normalized request messages into JSON-safe dicts for debug logs."""
         serialized: List[Dict[str, Any]] = []
-        for content in contents:
+        for message in messages:
             row: Dict[str, Any] = {
-                "role": str(getattr(content, "role", "") or ""),
-                "parts": [],
+                "role": str(message.role or ""),
+                "content": str(message.content or ""),
             }
-            parts = getattr(content, "parts", None) or []
-            for part in parts:
-                part_row: Dict[str, Any] = {}
-                text = getattr(part, "text", None)
-                if text:
-                    part_row["text"] = str(text)
-
-                function_response = getattr(part, "function_response", None)
-                if function_response is not None:
-                    part_row["function_response"] = {
-                        "name": str(getattr(function_response, "name", "") or ""),
-                        "response": self._safe_jsonable(getattr(function_response, "response", None)),
+            if message.name:
+                row["name"] = message.name
+            if message.tool_call_id:
+                row["tool_call_id"] = message.tool_call_id
+            if message.tool_calls:
+                row["tool_calls"] = [
+                    {
+                        "id": call.id,
+                        "name": call.name,
+                        "arguments": self._safe_jsonable(call.arguments),
                     }
-
-                function_call = getattr(part, "function_call", None)
-                if function_call is not None:
-                    part_row["function_call"] = {
-                        "name": str(getattr(function_call, "name", "") or ""),
-                        "args": self._safe_jsonable(getattr(function_call, "args", None)),
-                    }
-
-                if not part_row:
-                    part_row["repr"] = repr(part)
-                row["parts"].append(part_row)
+                    for call in message.tool_calls
+                ]
             serialized.append(row)
         return serialized
 
@@ -758,39 +864,6 @@ class AdvisorAgent:
                 return str(value)
         return str(value)
 
-    def _extract_parts(self, response: Any) -> Tuple[List[str], List[Any]]:
-        """Extract text responses and function calls from Gemini output."""
-        texts: List[str] = []
-        function_calls: List[Any] = []
-
-        candidates = getattr(response, "candidates", None) or []
-        for candidate in candidates:
-            content = getattr(candidate, "content", None)
-            if not content:
-                continue
-            for part in content.parts:
-                text = getattr(part, "text", None)
-                if text:
-                    texts.append(text)
-                function_call = getattr(part, "function_call", None)
-                if function_call:
-                    function_calls.append(function_call)
-
-        # Fallback for responses that only expose .text
-        if not texts and getattr(response, "text", None):
-            texts.append(response.text)
-
-        return texts, function_calls
-
-    def _first_model_content(self, response: Any) -> Optional[types.Content]:
-        """Return first candidate content block from model response."""
-        candidates = getattr(response, "candidates", None) or []
-        for candidate in candidates:
-            content = getattr(candidate, "content", None)
-            if content is not None:
-                return content
-        return None
-
     def _next_tool_call_id(self, state: AgentState) -> str:
         """Return the next stable tool-call identifier."""
         state.tool_call_sequence += 1
@@ -817,77 +890,6 @@ class AdvisorAgent:
             payload["is_compacted"] = True
 
         return payload
-
-    def _compact_conversation_tool_responses(
-        self,
-        conversation: List[types.Content],
-        state: AgentState,
-    ) -> None:
-        """Replace historical tool responses with summary payloads."""
-        if not conversation or not state.latest_tool_call_id:
-            return
-
-        compacted: List[types.Content] = []
-        for content in conversation:
-            if getattr(content, "role", None) != "user":
-                compacted.append(content)
-                continue
-
-            parts = getattr(content, "parts", None) or []
-            rebuilt_parts: List[types.Part] = []
-            has_tool_response = False
-
-            for part in parts:
-                function_response = getattr(part, "function_response", None)
-                if function_response is None:
-                    rebuilt_parts.append(part)
-                    continue
-
-                raw_payload = self._normalize_function_response_payload(
-                    getattr(function_response, "response", None)
-                )
-                call_id = str(raw_payload.get("call_id") or "").strip()
-                if not call_id:
-                    rebuilt_parts.append(part)
-                    continue
-
-                has_tool_response = True
-                name = str(getattr(function_response, "name", "") or "")
-                rebuilt_parts.append(
-                    types.Part(
-                        function_response=types.FunctionResponse(
-                            name=name,
-                            response=self._build_function_response_payload(
-                                function_name=name,
-                                call_id=call_id,
-                                state=state,
-                            ),
-                        )
-                    )
-                )
-
-            if has_tool_response:
-                compacted.append(types.Content(role="user", parts=rebuilt_parts))
-            else:
-                compacted.append(content)
-
-        conversation[:] = compacted
-
-    def _normalize_function_response_payload(self, payload: Any) -> Dict[str, Any]:
-        """Normalize function response payload into a plain dictionary."""
-        if payload is None:
-            return {}
-        if isinstance(payload, dict):
-            return payload
-        if isinstance(payload, str):
-            try:
-                parsed = json.loads(payload)
-                return parsed if isinstance(parsed, dict) else {}
-            except json.JSONDecodeError:
-                return {}
-        if hasattr(payload, "items"):
-            return {str(k): v for k, v in payload.items()}
-        return {}
 
     def _build_tool_memory_context(self, state: AgentState) -> Dict[str, Any]:
         """Build compact tool memory for final policy generation."""
@@ -1379,89 +1381,85 @@ class AdvisorAgent:
             "full_result": compact_result,
         }
 
-    def _tool_declaration(self) -> types.Tool:
-        """Gemini tool declaration for advisor workflow."""
-        return types.Tool(
-            function_declarations=[
-                types.FunctionDeclaration(
-                    name="runCashflowModel",
-                    description=(
-                        "Run numeric cashflow simulation. Returns quantitative projections only; "
-                        "the AI must do interpretation and gap reasoning."
-                    ),
-                    parameters=types.Schema(
-                        type=types.Type.OBJECT,
-                        properties={
-                            "simulation_mode": types.Schema(
-                                type=types.Type.STRING,
-                                enum=["deterministic", "monte_carlo"],
-                                description="Simulation mode. Use deterministic first, then monte_carlo.",
-                            ),
-                            "num_simulations": types.Schema(
-                                type=types.Type.INTEGER,
-                                description="Number of simulations for monte_carlo mode.",
-                            ),
-                            "seed": types.Schema(
-                                type=types.Type.INTEGER,
-                                description="Optional random seed for simulation reproducibility.",
-                            ),
-                            "return_individual_runs": types.Schema(
-                                type=types.Type.BOOLEAN,
-                                description="If true, request individual run trajectories in monte_carlo mode.",
-                            ),
-                            "num_individual_runs": types.Schema(
-                                type=types.Type.INTEGER,
-                                description="Number of individual runs to return when enabled.",
-                            ),
-                            "use_latest_neo_allocation": types.Schema(
-                                type=types.Type.BOOLEAN,
-                                description="If true, rerun cashflow using the latest Neo allocation.",
-                            ),
-                            "payload_override": types.Schema(
-                                type=types.Type.OBJECT,
-                                description=(
-                                    "Deep-merge override for the cashflow params payload. "
-                                    "Use this to modify any account type or nested field "
-                                    "(bank, brokerage, 401k, ira, housing, debt, insurance, goals, etc.)."
-                                ),
-                            ),
-                            "bank_balance_override": types.Schema(
-                                type=types.Type.NUMBER,
-                                description="Optional bank balance override for scenario testing.",
-                            ),
-                            "investment_balance_override": types.Schema(
-                                type=types.Type.NUMBER,
-                                description="Optional brokerage balance override for scenario testing.",
-                            ),
-                        },
-                    ),
+    def _tool_declaration(self) -> List[ToolSchema]:
+        """Provider-neutral tool declaration for advisor workflow."""
+        return [
+            ToolSchema(
+                name="runCashflowModel",
+                description=(
+                    "Run numeric cashflow simulation. Returns quantitative projections only; "
+                    "the AI must do interpretation and gap reasoning."
                 ),
-                types.FunctionDeclaration(
-                    name="optimizePortfolio",
-                    description=(
-                        "Run Neo engine optimization. Exposed inputs are target_volatility and "
-                        "optional Layer 2 active_risk_percentage (defaults to 0.0 if omitted)."
-                    ),
-                    parameters=types.Schema(
-                        type=types.Type.OBJECT,
-                        properties={
-                            "target_volatility": types.Schema(
-                                type=types.Type.NUMBER,
-                                description="Target volatility as decimal between 0.05 and 0.20.",
-                            ),
-                            "active_risk_percentage": types.Schema(
-                                type=types.Type.NUMBER,
-                                description=(
-                                    "Layer 2 active risk split as decimal between 0.0 and 1.0 "
-                                    "(or 0-100 percent). If omitted, advisor defaults to 0.0."
-                                ),
-                            ),
-                        },
-                        required=["target_volatility"],
-                    ),
+                parameters={
+                    "simulation_mode": {
+                        "type": "string",
+                        "enum": ["deterministic", "monte_carlo"],
+                        "description": "Simulation mode. Use deterministic first, then monte_carlo.",
+                    },
+                    "num_simulations": {
+                        "type": "integer",
+                        "description": "Number of simulations for monte_carlo mode.",
+                    },
+                    "seed": {
+                        "type": "integer",
+                        "description": "Optional random seed for simulation reproducibility.",
+                    },
+                    "return_individual_runs": {
+                        "type": "boolean",
+                        "description": "If true, request individual run trajectories in monte_carlo mode.",
+                    },
+                    "num_individual_runs": {
+                        "type": "integer",
+                        "description": "Number of individual runs to return when enabled.",
+                    },
+                    "use_latest_neo_allocation": {
+                        "type": "boolean",
+                        "description": "If true, rerun cashflow using the latest Neo allocation.",
+                    },
+                    "payload_override": {
+                        "type": "object",
+                        "description": (
+                            "Deep-merge override for the cashflow params payload. "
+                            "Use this to modify any account type or nested field "
+                            "(bank, brokerage, 401k, ira, housing, debt, insurance, goals, etc.)."
+                        ),
+                    },
+                    "bank_balance_override": {
+                        "type": "number",
+                        "description": "Optional bank balance override for scenario testing.",
+                    },
+                    "investment_balance_override": {
+                        "type": "number",
+                        "description": "Optional brokerage balance override for scenario testing.",
+                    },
+                },
+            ),
+            ToolSchema(
+                name="optimizePortfolio",
+                description=(
+                    "Run Neo engine optimization. Exposed inputs are target_volatility and "
+                    "optional Layer 2 active_risk_percentage (defaults to 0.0 if omitted)."
                 ),
-            ]
-        )
+                parameters={
+                    "target_volatility": {
+                        "type": "number",
+                        "description": "Target volatility as decimal between 0.05 and 0.20.",
+                    },
+                    "active_risk_percentage": {
+                        "type": "number",
+                        "description": (
+                            "Layer 2 active risk split as decimal between 0.0 and 1.0 "
+                            "(or 0-100 percent). If omitted, advisor defaults to 0.0."
+                        ),
+                    },
+                },
+                required=["target_volatility"],
+            ),
+        ]
+
+    def _tool_loop_stage_name(self) -> str:
+        """Stage key for tool-loop generation."""
+        return "solution_tool_loop"
 
     def _build_initial_prompt(self, client_payload: Dict[str, Any], advisor_request: str) -> str:
         """Create initial prompt for the agent loop."""

@@ -5,16 +5,17 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict
-
-from google.genai import types
+from typing import Any, Dict, List
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 _SOLUTION_AGENT_DIR = _REPO_ROOT / "solution-agent-service"
 if str(_SOLUTION_AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(_SOLUTION_AGENT_DIR))
 
 from advisor_agent import AdvisorAgent, AdvisorConfig
+from shared.llm import LLMMessage, ToolSchema
 
 
 class ClientProfileAgent(AdvisorAgent):
@@ -56,8 +57,9 @@ class ClientProfileAgent(AdvisorAgent):
             f"{json.dumps(context, indent=2, ensure_ascii=True)}"
         )
 
-        response, model_used = self._generate_with_fallback(
-            contents=[types.Content(role="user", parts=[types.Part(text=user_prompt)])],
+        response, model_used, provider_used = self._generate_with_fallback(
+            stage_name="client_profile_synthesis",
+            messages=[LLMMessage(role="user", content=user_prompt)],
             system_instruction=(
                 "You are a client profile analysis agent. Produce one JSON object only."
             ),
@@ -65,10 +67,7 @@ class ClientProfileAgent(AdvisorAgent):
             temperature=0.2,
         )
 
-        raw_text = (response.text or "").strip()
-        if not raw_text:
-            extracted_text, _ = self._extract_parts(response)
-            raw_text = "\n".join(extracted_text).strip()
+        raw_text = response.text.strip()
 
         profile_analysis = self._parse_json_object(raw_text)
         model_financial_json = profile_analysis.get("client_financial_json", {})
@@ -86,67 +85,68 @@ class ClientProfileAgent(AdvisorAgent):
         return {
             "success": True,
             "model_used": model_used,
+            "provider_used": provider_used,
             "profile_analysis": profile_analysis,
             "context": context,
             "tool_loop_model_used": loop_result.get("model_used", "unknown"),
+            "tool_loop_provider_used": loop_result.get("provider_used", "unknown"),
             "finalize_signal": loop_result.get("finalize_signal"),
         }
 
-    def _tool_declaration(self) -> types.Tool:
+    def _tool_declaration(self) -> List[ToolSchema]:
         """Cashflow-only tool declaration for client profile analysis."""
-        return types.Tool(
-            function_declarations=[
-                types.FunctionDeclaration(
-                    name="runCashflowModel",
-                    description=(
-                        "Run numeric cashflow simulation. Returns quantitative projections only; "
-                        "the AI must do interpretation and gap reasoning."
-                    ),
-                    parameters=types.Schema(
-                        type=types.Type.OBJECT,
-                        properties={
-                            "simulation_mode": types.Schema(
-                                type=types.Type.STRING,
-                                enum=["deterministic", "monte_carlo"],
-                                description="Simulation mode. Use deterministic first, then monte_carlo.",
-                            ),
-                            "num_simulations": types.Schema(
-                                type=types.Type.INTEGER,
-                                description="Number of simulations for monte_carlo mode.",
-                            ),
-                            "seed": types.Schema(
-                                type=types.Type.INTEGER,
-                                description="Optional random seed for simulation reproducibility.",
-                            ),
-                            "return_individual_runs": types.Schema(
-                                type=types.Type.BOOLEAN,
-                                description="If true, request individual run trajectories in monte_carlo mode.",
-                            ),
-                            "num_individual_runs": types.Schema(
-                                type=types.Type.INTEGER,
-                                description="Number of individual runs to return when enabled.",
-                            ),
-                            "payload_override": types.Schema(
-                                type=types.Type.OBJECT,
-                                description=(
-                                    "Deep-merge override for the cashflow params payload. "
-                                    "Use this to modify any account type or nested field "
-                                    "(bank, brokerage, 401k, ira, housing, debt, insurance, goals, etc.)."
-                                ),
-                            ),
-                            "bank_balance_override": types.Schema(
-                                type=types.Type.NUMBER,
-                                description="Optional bank balance override for scenario testing.",
-                            ),
-                            "investment_balance_override": types.Schema(
-                                type=types.Type.NUMBER,
-                                description="Optional brokerage balance override for scenario testing.",
-                            ),
-                        },
-                    ),
-                )
-            ]
-        )
+        return [
+            ToolSchema(
+                name="runCashflowModel",
+                description=(
+                    "Run numeric cashflow simulation. Returns quantitative projections only; "
+                    "the AI must do interpretation and gap reasoning."
+                ),
+                parameters={
+                    "simulation_mode": {
+                        "type": "string",
+                        "enum": ["deterministic", "monte_carlo"],
+                        "description": "Simulation mode. Use deterministic first, then monte_carlo.",
+                    },
+                    "num_simulations": {
+                        "type": "integer",
+                        "description": "Number of simulations for monte_carlo mode.",
+                    },
+                    "seed": {
+                        "type": "integer",
+                        "description": "Optional random seed for simulation reproducibility.",
+                    },
+                    "return_individual_runs": {
+                        "type": "boolean",
+                        "description": "If true, request individual run trajectories in monte_carlo mode.",
+                    },
+                    "num_individual_runs": {
+                        "type": "integer",
+                        "description": "Number of individual runs to return when enabled.",
+                    },
+                    "payload_override": {
+                        "type": "object",
+                        "description": (
+                            "Deep-merge override for the cashflow params payload. "
+                            "Use this to modify any account type or nested field "
+                            "(bank, brokerage, 401k, ira, housing, debt, insurance, goals, etc.)."
+                        ),
+                    },
+                    "bank_balance_override": {
+                        "type": "number",
+                        "description": "Optional bank balance override for scenario testing.",
+                    },
+                    "investment_balance_override": {
+                        "type": "number",
+                        "description": "Optional brokerage balance override for scenario testing.",
+                    },
+                },
+            )
+        ]
+
+    def _tool_loop_stage_name(self) -> str:
+        """Stage key for profile-agent tool loop."""
+        return "client_profile_tool_loop"
 
     def _build_initial_prompt(self, client_payload: Dict[str, Any], advisor_request: str) -> str:
         """Create initial prompt for profile-understanding loop."""

@@ -1,6 +1,6 @@
 # Solution Agent Service
 
-Flask service that runs an agentic workflow using Gemini and two external tools:
+Flask service that runs an agentic workflow using configurable LLM providers and two external tools:
 - Cashflow modeling API
 - Neo engine optimization API
 
@@ -10,11 +10,11 @@ The service now uses a two-agent pipeline:
 
 ## Key Design Choices
 
-- Agent brain: `models/gemini-3-pro-preview` by default (`ADVISOR_GEMINI_MODEL` configurable).
+- Stage-selectable LLM provider/model (Gemini/OpenAI) with stage-local fallbacks.
 - Three-step policy pipeline:
   1) Client Profile Agent runs a cashflow-only loop and outputs profile/gap analysis.
   2) Solution Agent runs a tool-enabled loop (cashflow + Neo) and produces Step-1 policy JSON.
-  3) A standalone UI generation step calls Gemini again to convert Step-1 policy JSON into UI JSON.
+  3) A standalone UI generation step calls configured LLM again to convert Step-1 policy JSON into UI JSON.
 - Neo tool inputs exposed to the model: only:
   - `target_volatility`
   - `active_risk_percentage`
@@ -41,10 +41,21 @@ The service now uses a two-agent pipeline:
 
 Supported env names (advisor reads either form):
 - Gemini key: `GOOGLE_GENAI_API_KEY` or `GEMINI_API_KEY`
+- OpenAI key: `OPENAI_API_KEY`
 - Neo URL: `NEOENGINE_API_URL` or `PYTHON_NEO_ENGINE_URL`
 - Neo key: `NEOENGINE_API_KEY` or `NEO_ENGINE_API_KEY`
 - Cashflow URL: `CASHFLOW_API_URL` or `CASHFLOW_MODEL_URL`
 - Optional cashflow key: `CASHFLOW_API_KEY`
+
+Stage-level LLM config (primary + fallback chain):
+- `CLIENT_PROFILE_TOOL_LOOP_PROVIDER`, `CLIENT_PROFILE_TOOL_LOOP_MODEL`, `CLIENT_PROFILE_TOOL_LOOP_FALLBACKS`
+- `CLIENT_PROFILE_SYNTHESIS_PROVIDER`, `CLIENT_PROFILE_SYNTHESIS_MODEL`, `CLIENT_PROFILE_SYNTHESIS_FALLBACKS`
+- `SOLUTION_TOOL_LOOP_PROVIDER`, `SOLUTION_TOOL_LOOP_MODEL`, `SOLUTION_TOOL_LOOP_FALLBACKS`
+- `SOLUTION_SYNTHESIS_PROVIDER`, `SOLUTION_SYNTHESIS_MODEL`, `SOLUTION_SYNTHESIS_FALLBACKS`
+- `POLICY_UI_PROVIDER`, `POLICY_UI_MODEL`, `POLICY_UI_FALLBACKS`
+
+Fallback format: comma-separated `provider:model` entries, for example:
+`openai:gpt-4.1-mini,gemini:models/gemini-2.5-pro`.
 
 2. Install dependencies:
 
@@ -98,5 +109,7 @@ Error responses remain JSON.
 
 - `tool-health` is the quickest way to validate connectivity/auth to both tool APIs.
 - If `ADVISOR_API_KEY` is set, include it as `X-Api-Key` header for advisor endpoints.
-- Advisor defaults to a single model (`models/gemini-3-pro-preview`) for policy generation.
-- Optional UI-step model override: `ADVISOR_UI_GEMINI_MODEL` (defaults to advisor model).
+- Legacy vars still work:
+  - `ADVISOR_GEMINI_MODEL`
+  - `ADVISOR_UI_GEMINI_MODEL`
+  - `ADVISOR_GEMINI_FALLBACK_MODELS` (Gemini-only list)

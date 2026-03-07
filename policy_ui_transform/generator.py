@@ -1,15 +1,19 @@
-"""Gemini-based conversion from Step-1 policy JSON to UI policy JSON."""
+"""LLM-based conversion from Step-1 policy JSON to UI policy JSON."""
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-from google import genai
-from google.genai import types
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from shared.llm import LLMClientFactory, LLMGenerateRequest, LLMMessage, dedupe_model_chain
 
 
 class PolicyUiGenerator:
@@ -17,20 +21,27 @@ class PolicyUiGenerator:
 
     def __init__(
         self,
-        gemini_api_key: str,
-        gemini_model: str,
-        gemini_timeout_ms: int,
+        google_api_key: str,
+        openai_api_key: str,
+        provider: str,
+        model: str,
+        fallbacks: Optional[List[tuple[str, str]]],
+        llm_timeout_ms: int,
         prompts_dir: Path,
     ):
-        if not gemini_api_key:
-            raise ValueError("Gemini API key is required for PolicyUiGenerator")
-        self.gemini_model = gemini_model
+        self.google_api_key = google_api_key
+        self.openai_api_key = openai_api_key
+        self.chain = dedupe_model_chain((provider, model), fallbacks or [])
+        if not self.chain:
+            raise ValueError("Policy UI model chain is empty")
+        providers = {str(provider_name or "").strip().lower() for provider_name, _ in self.chain}
+        if "gemini" in providers and not self.google_api_key:
+            raise ValueError("Policy UI stage requires Gemini API key")
+        if "openai" in providers and not self.openai_api_key:
+            raise ValueError("Policy UI stage requires OPENAI_API_KEY")
+        self.llm_timeout_ms = llm_timeout_ms
         self.prompts_dir = prompts_dir
-        self.client = genai.Client(
-            api_key=gemini_api_key,
-            http_options=types.HttpOptions(timeout=gemini_timeout_ms),
-        )
-        # Temporary prompt logging to inspect exact Gemini request contexts.
+        # Temporary prompt logging to inspect exact request contexts.
         self._prompt_log_enabled = os.getenv("ADVISOR_TEMP_LOG_PROMPTS", "true").strip().lower() not in {
             "0",
             "false",
@@ -49,9 +60,10 @@ class PolicyUiGenerator:
         step1_policy: Optional[Dict[str, Any]] = None,
         supporting_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Run Gemini conversion from Step-1 policy JSON to UI JSON payload."""
+        """Run conversion from Step-1 policy JSON to UI JSON payload."""
         if not isinstance(step1_policy, dict):
             raise ValueError("step1_policy is required")
+        last_error: Optional[Exception] = None
         try:
             system_prompt = self._read_prompt("system_prompt.txt")
             user_payload = {
@@ -63,73 +75,62 @@ class PolicyUiGenerator:
                 "Use step1_policy as source-of-truth. Use supporting_context only when needed.\n\n"
                 f"{json.dumps(user_payload, indent=2, ensure_ascii=True)}"
             )
-            self._append_prompt_log(
-                {
-                    "stage": "ui_transform_generate_content",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "model": self.gemini_model,
-                    "system_instruction": system_prompt,
-                    "temperature": 0.2,
-                    "contents": [
+            for provider_name, model_name in self.chain:
+                try:
+                    adapter = LLMClientFactory.create(
+                        provider=provider_name,
+                        google_api_key=self.google_api_key,
+                        openai_api_key=self.openai_api_key,
+                        timeout_ms=self.llm_timeout_ms,
+                    )
+                    self._append_prompt_log(
                         {
-                            "role": "user",
-                            "parts": [{"text": user_prompt}],
+                            "stage": "ui_transform_generate_content",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "provider": provider_name,
+                            "model": model_name,
+                            "system_instruction": system_prompt,
+                            "temperature": 0.2,
+                            "contents": [{"role": "user", "content": user_prompt}],
                         }
-                    ],
-                }
-            )
-
-            response = self.client.models.generate_content(
-                model=self.gemini_model,
-                contents=[types.Content(role="user", parts=[types.Part(text=user_prompt)])],
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=0.2,
-                ),
-            )
-            raw_text = (response.text or "").strip()
-            if not raw_text:
-                extracted_text, _ = self._extract_parts(response)
-                raw_text = "\n".join(extracted_text).strip()
-
-            payload = self._parse_json_object(raw_text)
-            payload = self._normalize_menu_preview_summary(payload)
-            return {
-                "success": True,
-                "model_used": self.gemini_model,
-                "ui_policy": payload,
-                "ui_generation": {
-                    "fallback_used": False,
-                    "source": "gemini",
-                },
-            }
+                    )
+                    response = adapter.generate(
+                        request=LLMGenerateRequest(
+                            messages=[LLMMessage(role="user", content=user_prompt)],
+                            system_instruction=system_prompt,
+                            temperature=0.2,
+                        ),
+                        model=model_name,
+                    )
+                    payload = self._parse_json_object(response.text.strip())
+                    payload = self._normalize_menu_preview_summary(payload)
+                    return {
+                        "success": True,
+                        "model_used": model_name,
+                        "provider_used": provider_name,
+                        "ui_policy": payload,
+                        "ui_generation": {
+                            "fallback_used": (provider_name, model_name) != self.chain[0],
+                            "source": provider_name,
+                        },
+                    }
+                except Exception as exc:  # pylint: disable=broad-except
+                    last_error = exc
+                    message = str(exc)
+                    if "429" in message or "RESOURCE_EXHAUSTED" in message:
+                        continue
+                    if "404" in message or "NOT_FOUND" in message:
+                        continue
+                    break
         except Exception as exc:  # pylint: disable=broad-except
-            return self._build_reference_ui_fallback(str(exc))
+            last_error = exc
+        return self._build_reference_ui_fallback(str(last_error))
 
     def _read_prompt(self, filename: str) -> str:
         path = self.prompts_dir / filename
         if not path.exists():
             raise FileNotFoundError(f"Prompt file not found: {path}")
         return path.read_text(encoding="utf-8")
-
-    def _extract_parts(self, response: Any) -> Tuple[list[str], list[Any]]:
-        texts: list[str] = []
-        function_calls: list[Any] = []
-        candidates = getattr(response, "candidates", None) or []
-        for candidate in candidates:
-            content = getattr(candidate, "content", None)
-            if not content:
-                continue
-            for part in content.parts:
-                text = getattr(part, "text", None)
-                if text:
-                    texts.append(text)
-                function_call = getattr(part, "function_call", None)
-                if function_call:
-                    function_calls.append(function_call)
-        if not texts and getattr(response, "text", None):
-            texts.append(response.text)
-        return texts, function_calls
 
     def _parse_json_object(self, raw_text: str) -> Dict[str, Any]:
         text = str(raw_text or "").strip()
@@ -209,7 +210,7 @@ class PolicyUiGenerator:
         return payload
 
     def _build_reference_ui_fallback(self, failure_reason: str) -> Dict[str, Any]:
-        """Return a deterministic UI payload when Gemini UI transformation fails."""
+        """Return a deterministic UI payload when UI transformation fails."""
         reference_securities = [
             {
                 "id": "VOO",

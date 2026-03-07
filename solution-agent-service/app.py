@@ -359,14 +359,14 @@ def get_policy_ui_generator() -> PolicyUiGenerator:
     global _POLICY_UI_GENERATOR
     if _POLICY_UI_GENERATOR is None:
         config = AdvisorConfig.from_env()
-        ui_model = (
-            os.getenv("ADVISOR_UI_GEMINI_MODEL", config.gemini_model).strip()
-            or config.gemini_model
-        )
+        ui_stage = config.stage_models.get("policy_ui", {})
         _POLICY_UI_GENERATOR = PolicyUiGenerator(
-            gemini_api_key=config.gemini_api_key,
-            gemini_model=ui_model,
-            gemini_timeout_ms=config.gemini_timeout_ms,
+            google_api_key=config.gemini_api_key,
+            openai_api_key=config.openai_api_key,
+            provider=str(ui_stage.get("primary_provider", "gemini")),
+            model=str(ui_stage.get("primary_model", "models/gemini-3-pro-preview")),
+            fallbacks=list(ui_stage.get("fallbacks", [])),
+            llm_timeout_ms=config.llm_timeout_ms,
             prompts_dir=_REPO_ROOT / "policy_ui_transform" / "prompts",
         )
     return _POLICY_UI_GENERATOR
@@ -475,7 +475,22 @@ def _create_elevenlabs_signed_url_response(agent_id: str, missing_agent_env_name
 @app.route("/health", methods=["GET"])
 def health() -> Any:
     """Service health endpoint."""
-    return jsonify({"status": "healthy", "service": "solution-agent-service"}), 200
+    config = AdvisorConfig.from_env()
+    stage_rows = {
+        stage: {
+            "primary_provider": row.get("primary_provider"),
+            "primary_model": row.get("primary_model"),
+            "fallbacks": row.get("fallbacks", []),
+        }
+        for stage, row in config.stage_models.items()
+    }
+    return jsonify(
+        {
+            "status": "healthy",
+            "service": "solution-agent-service",
+            "llm_stages": stage_rows,
+        }
+    ), 200
 
 
 @app.route("/advisor/api/v1/tool-health", methods=["GET"])

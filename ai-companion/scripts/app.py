@@ -12,13 +12,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from google.genai import Client, types
 
 Stage = Literal["chat", "awaiting_confirmation", "consultation_active"]
 
@@ -29,7 +29,11 @@ class CompanionState:
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 PROMPT_PATH = REPO_ROOT / "ai-companion" / "ai-companion-prompt" / "ai_companion_system_prompt.txt"
+
+from shared.llm import LLMClientFactory, LLMGenerateRequest, LLMMessage, dedupe_model_chain, parse_fallback_chain
 
 
 def _load_root_env() -> Dict[str, str]:
@@ -58,6 +62,11 @@ def _get_gemini_key() -> str:
         or env.get("GOOGLE_GENAI_API_KEY", "").strip()
         or env.get("GEMINI_API_KEY", "").strip()
     )
+
+
+def _get_openai_key() -> str:
+    env = _load_root_env()
+    return os.getenv("OPENAI_API_KEY", "").strip() or env.get("OPENAI_API_KEY", "").strip()
 
 
 def _extract_json(raw: str) -> Dict[str, Any]:
@@ -149,26 +158,35 @@ def _sanitize_messages(messages: Any) -> List[Dict[str, str]]:
     return clean[-20:]
 
 
-def _build_contents(messages: List[Dict[str, str]]) -> List[types.Content]:
-    contents: List[types.Content] = []
+def _build_contents(messages: List[Dict[str, str]]) -> List[LLMMessage]:
+    contents: List[LLMMessage] = []
     for row in messages:
-        contents.append(
-            types.Content(
-                role="user" if row["role"] == "user" else "model",
-                parts=[types.Part(text=row["content"])],
-            )
-        )
+        role = "user" if row["role"] == "user" else "assistant"
+        contents.append(LLMMessage(role=role, content=row["content"]))
     return contents
 
 
-class GeminiCompanion:
+class MultiProviderCompanion:
     def __init__(self) -> None:
-        api_key = _get_gemini_key()
-        if not api_key:
-            raise RuntimeError("Gemini API key missing (set GOOGLE_GENAI_API_KEY or GEMINI_API_KEY)")
-
-        self.model = os.getenv("AI_COMPANION_GEMINI_MODEL", "models/gemini-2.5-pro").strip()
-        self.client = Client(api_key=api_key)
+        self.google_api_key = _get_gemini_key()
+        self.openai_api_key = _get_openai_key()
+        provider = os.getenv("AI_COMPANION_PROVIDER", "gemini").strip().lower() or "gemini"
+        model = (
+            os.getenv("AI_COMPANION_MODEL", "").strip()
+            or os.getenv("AI_COMPANION_GEMINI_MODEL", "").strip()
+            or "models/gemini-2.5-pro"
+        )
+        fallback_raw = os.getenv("AI_COMPANION_FALLBACKS", "").strip()
+        fallbacks = parse_fallback_chain(fallback_raw) if fallback_raw else []
+        self.chain = dedupe_model_chain((provider, model), fallbacks)
+        if not self.chain:
+            raise RuntimeError("AI companion model chain is empty")
+        if not self.google_api_key and not self.openai_api_key:
+            raise RuntimeError(
+                "Missing LLM API key. Set GOOGLE_GENAI_API_KEY/GEMINI_API_KEY and/or OPENAI_API_KEY."
+            )
+        self.provider = self.chain[0][0]
+        self.model = self.chain[0][1]
         self.system_prompt = PROMPT_PATH.read_text(encoding="utf-8").strip()
 
     def chat(self, messages: List[Dict[str, str]], state: CompanionState) -> Dict[str, Any]:
@@ -233,16 +251,42 @@ class GeminiCompanion:
             f"- latest_user_negative={str(negative).lower()}\n"
             "Return strict JSON only."
         )
-        contents.append(types.Content(role="user", parts=[types.Part(text=instructions)]))
+        contents.append(LLMMessage(role="user", content=instructions))
 
-        response = self.client.models.generate_content(
-            model=self.model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=self.system_prompt,
-                temperature=0.35,
-            ),
-        )
+        response = None
+        last_error: Optional[Exception] = None
+        provider_used = self.provider
+        model_used = self.model
+        for provider_name, model_name in self.chain:
+            try:
+                adapter = LLMClientFactory.create(
+                    provider=provider_name,
+                    google_api_key=self.google_api_key,
+                    openai_api_key=self.openai_api_key,
+                    timeout_ms=int(os.getenv("AI_COMPANION_LLM_TIMEOUT_MS", "90000") or "90000"),
+                )
+                response = adapter.generate(
+                    request=LLMGenerateRequest(
+                        messages=contents,
+                        system_instruction=self.system_prompt,
+                        temperature=0.35,
+                    ),
+                    model=model_name,
+                )
+                provider_used = provider_name
+                model_used = model_name
+                break
+            except Exception as exc:  # pylint: disable=broad-except
+                last_error = exc
+                message = str(exc)
+                if "429" in message or "RESOURCE_EXHAUSTED" in message:
+                    continue
+                if "404" in message or "NOT_FOUND" in message:
+                    continue
+                raise
+
+        if response is None:
+            raise RuntimeError(f"AI companion generation failed: {last_error}")
 
         raw = (response.text or "").strip()
         parsed = _extract_json(raw)
@@ -282,6 +326,8 @@ class GeminiCompanion:
             next_stage = "chat"
 
         result["state"] = {"stage": next_stage}
+        result["provider_used"] = provider_used
+        result["model_used"] = model_used
         return result
 
 
@@ -289,8 +335,8 @@ app = Flask(__name__)
 CORS(app)
 
 
-def _build_agent() -> GeminiCompanion:
-    return GeminiCompanion()
+def _build_agent() -> MultiProviderCompanion:
+    return MultiProviderCompanion()
 
 
 try:
@@ -306,7 +352,15 @@ else:
 def health() -> Any:
     if STARTUP_ERROR:
         return jsonify({"success": False, "error": STARTUP_ERROR}), 500
-    return jsonify({"success": True, "service": "ai-companion", "model": AGENT.model})
+    return jsonify(
+        {
+            "success": True,
+            "service": "ai-companion",
+            "provider": AGENT.provider,
+            "model": AGENT.model,
+            "fallbacks": AGENT.chain[1:],
+        }
+    )
 
 
 @app.post("/api/v1/ai-companion/chat")

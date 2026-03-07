@@ -158,7 +158,7 @@ export default function ProductVisionDemo() {
 
   const runPolicyPipeline = useCallback(async (payload: RetryPayload) => {
     setPolicy(buildReferenceFallbackPolicy('loading'));
-    setCurrentScreen(5);
+    setCurrentScreen(6);
     setIsPolicyLoading(true);
     setPolicyError(null);
     setRetryPayload(payload);
@@ -184,7 +184,7 @@ export default function ProductVisionDemo() {
       setPolicy(body.policy as FinalPolicy);
       setIsPolicyLoading(false);
       setPolicyError(null);
-      setCurrentScreen(6);
+      setCurrentScreen(7);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Policy generation failed';
       setPolicy(buildReferenceFallbackPolicy('failed', message));
@@ -286,7 +286,7 @@ export default function ProductVisionDemo() {
         setCompanionStage(nextStage);
 
         if (body.ui_action === 'activate_consultation_phone') {
-          setCurrentScreen(4);
+          setCurrentScreen(5);
         }
       } catch (error) {
         const fallbackMessage: CompanionChatMessage = {
@@ -317,9 +317,21 @@ export default function ProductVisionDemo() {
       {
         id: 4,
         component: (
+          <Screen7
+            onCallAgent={() => setCurrentScreen(5)}
+            messages={companionMessages}
+            isSendingMessage={pendingCompanionReplies > 0}
+            companionStage={companionStage}
+            onSendMessage={handleSendCompanionMessage}
+          />
+        ),
+      },
+      {
+        id: 5,
+        component: (
           <Screen3
             onConsultationEnd={handleConsultationEnd}
-            onSwitchToChat={() => setCurrentScreen(10)}
+            onSwitchToChat={() => setCurrentScreen(4)}
             isDarkMode={isDarkMode}
             voiceStatus={consultationVoiceStatus}
             voiceMode={consultationVoiceMode}
@@ -339,26 +351,26 @@ export default function ProductVisionDemo() {
         ),
       },
       {
-        id: 5,
+        id: 6,
         component: (
           <ScreenWait isLoading={isPolicyLoading} error={policyError} onRetry={handleRetryPolicy} />
         ),
       },
       {
-        id: 6,
+        id: 7,
         component: (
           <ScreenFinancialDiagnoses
             diagnoses={financialDiagnoses}
             fallbackLabel={fallbackLabel}
-            onNext={() => setCurrentScreen(7)}
+            onNext={() => setCurrentScreen(8)}
           />
         ),
       },
       {
-        id: 7,
+        id: 8,
         component: (
           <Screen4
-            onAnalyzeDepth={() => setCurrentScreen(8)}
+            onAnalyzeDepth={() => setCurrentScreen(9)}
             menu={menuData}
             proposalIndex={policy?.proposal_index ?? 1}
             proposalCount={policy?.proposal_count ?? 1}
@@ -367,12 +379,12 @@ export default function ProductVisionDemo() {
         ),
       },
       {
-        id: 8,
+        id: 9,
         component: (
           <Screen5
             onProceed={() => {
               void stopPolicyVoiceExplanation();
-              setCurrentScreen(9);
+              setCurrentScreen(10);
             }}
             detail={detailData}
             activeVoiceSectionKey={derivedPolicyVoiceSectionKey}
@@ -394,24 +406,12 @@ export default function ProductVisionDemo() {
         ),
       },
       {
-        id: 9,
-        component: (
-          <Screen6
-            onExecute={() => setCurrentScreen(10)}
-            execution={policy?.execution}
-            fallbackCurrency={detailData?.portfolio?.currency || 'USD'}
-          />
-        ),
-      },
-      {
         id: 10,
         component: (
-          <Screen7
-            onCallAgent={() => setCurrentScreen(4)}
-            messages={companionMessages}
-            isSendingMessage={pendingCompanionReplies > 0}
-            companionStage={companionStage}
-            onSendMessage={handleSendCompanionMessage}
+          <Screen6
+            onExecute={() => setCurrentScreen(4)}
+            execution={policy?.execution}
+            fallbackCurrency={detailData?.portfolio?.currency || 'USD'}
           />
         ),
       },
@@ -453,13 +453,13 @@ export default function ProductVisionDemo() {
   const current = screens.find((screen) => screen.id === currentScreen) ?? screens[0];
 
   useEffect(() => {
-    if (currentScreen !== 8 && isPolicyVoicePlaying) {
+    if (currentScreen !== 9 && isPolicyVoicePlaying) {
       void stopPolicyVoiceExplanation();
     }
   }, [currentScreen, isPolicyVoicePlaying, stopPolicyVoiceExplanation]);
 
   useEffect(() => {
-    if (currentScreen === 4) {
+    if (currentScreen === 5) {
       void prewarmConsultationVoiceSession();
     }
   }, [currentScreen, prewarmConsultationVoiceSession]);
@@ -492,8 +492,13 @@ export default function ProductVisionDemo() {
           ))}
 
           <button
-            onClick={() => setCurrentScreen((prev) => Math.min(10, prev + 1))}
-            disabled={currentScreen === 10}
+            onClick={() =>
+              setCurrentScreen((prev) => {
+                const maxId = screens[screens.length - 1]?.id ?? 1;
+                return Math.min(maxId, prev + 1);
+              })
+            }
+            disabled={currentScreen === (screens[screens.length - 1]?.id ?? 1)}
             className="h-9 w-9 rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center"
             aria-label="Next screen"
           >

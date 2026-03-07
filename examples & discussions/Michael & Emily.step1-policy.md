@@ -1,55 +1,283 @@
-# Carter Family Strategic Wealth Policy
+# Michael & Emily - Step 1 Policy
 
-This policy outlines a comprehensive wealth management strategy for Michael and Emily Carter to achieve retirement readiness by age 62 and fund their son Noah's future education. The strategy transitions the household from a bifurcated, concentrated asset structure (100% US Equity in taxable and 100% US Treasury in tax-deferred) to a globally diversified, risk-optimized portfolio. By reallocating $675,000 in existing assets, the plan maintains a 100% success probability for core goals while improving tax efficiency and household-level discipline.
+Generated from: `examples & discussions/Michael & Emily.md` via `/advisor/api/v1/generate-step1-policy-json`.
 
-## Client Background
+## Policy Title
+Carter Family Unified Diversification and College Funding Policy
 
-Michael Carter (36) and Emily Carter (34) are residents of Austin, Texas. Michael has stable employment with predictable compensation growth. Emily works part-time as a pediatric nurse. They have one child, Noah (1). The family is focused on long-term stability, education funding, and retirement security.
+## Executive Summary
+This policy establishes a unified investment and funding strategy for Michael and Emily Carter, addressing portfolio concentration, tax efficiency, and college savings for their son Noah. The plan diversifies the taxable brokerage, introduces a dedicated 529 college savings account, and reallocates retirement assets for improved risk management and tax outcomes, while maintaining emergency reserves and supporting long-term lifestyle continuity.
 
-## Client Financial Snapshot
+## Sections
+### Client Background
 
-Gross Household Income: $242,000 annually.\nNet Monthly Take-Home: $12,300 - $13,100.\nTotal Investable Assets: $675,000.\n- Bank Balance: $78,000\n- Taxable Brokerage: $275,000 (currently 100% US Equity)\n- 401(k): $322,000 (currently 100% US Treasury)\nLiabilities: $472,000 mortgage (3.375% rate) and Emily's student loans ($280/month).
+Michael (36) and Emily Carter (34) are a married couple residing in Austin, Texas, with one child, Noah (age 1). Michael is a Senior Operations Manager with a high, stable income; Emily works part-time as a pediatric nurse. The household is focused on maintaining lifestyle, saving for Noah's education, and preparing for retirement.
 
-## Client Financial Needs
+### Client Financial Snapshot
 
-1. Retirement Readiness: Target retirement at age 62 with lifestyle continuity.\n2. Education Funding: Support future college costs for Noah; specific numerical targets for in-state vs. out-of-state costs are currently undefined and require future quantification.\n3. Emergency Reserve: Maintain 6-9 months of core spending ($64,800 - $97,200).
+Combined gross income is $242,000/year (Michael: $188,000 salary + $18,000 bonus; Emily: $48,000). Net monthly take-home is $12,300–$13,100. Annual spending is $146,400. Assets include $78,000 in bank savings, $275,000 in taxable brokerage (100% US equities), and $322,000 in 401(k) (100% US treasuries). Liabilities: $472,000 mortgage at 3.375%, and student loans (minimum $280/month).
 
-## Client Investment Preferences and Behavioral Considerations
+### Client Financial Needs
 
-The clients seek to avoid over-concentration risk and improve household-level allocation discipline. There is a strong preference for improving tax efficiency by optimizing asset placement across taxable and tax-deferred accounts. The household demonstrates high capacity for risk given stable income and long horizons, but requires a structured framework to prevent reactive decision-making.
+Key needs: diversify taxable brokerage holdings, improve tax efficiency, establish dedicated college savings for Noah, maintain emergency reserves, and monitor retirement readiness.
 
-## Taxes, Exclusions, and Exemptions
+### Client Investment Preferences and Behavioral Considerations
 
-As U.S. citizens residing in Texas, the clients are not subject to state income tax. Investment strategy focuses on federal tax efficiency, utilizing the 401(k) for tax-inefficient assets and the taxable brokerage for long-term capital gains efficiency. No specific asset exclusions or religious exemptions were noted.
+The Carters prefer maintaining a 6-month emergency reserve, avoiding over-concentration in taxable accounts, and seek disciplined, tax-efficient allocation. They value stability, lifestyle continuity, and are open to phased portfolio adjustments.
 
-## Other Special Requirements
+### Taxes, Exclusions, and Exemptions
 
-The plan must preserve the current lifestyle while ensuring the 6-9 month emergency reserve remains liquid. The mortgage at 3.375% is considered low-interest debt and is not a priority for accelerated repayment.
+Current structure places all US equities in taxable accounts and all US treasuries in 401(k), which is suboptimal for tax efficiency. No explicit tax-exempt accounts for education exist yet. No insurance or estate exclusions specified.
 
-## Capital Deployment Timeline
+### Other Special Requirements
 
-Total Plan Capital: USD 675,000.00.\n- Portfolio A (Retirement Readiness): USD 322,000.00 (Source: 401k).\n- Portfolio B (Education & Reserves): USD 353,000.00 (Source: Brokerage and Bank).\nDeployment will involve immediate reallocation of existing balances to the target diversified model.
+Maintain at least 6 months of expenses in liquid emergency reserves. No insurance or estate planning requirements specified in current context.
 
-## Portfolio Policy
+### Capital Deployment Timeline
 
-Portfolio A: Retirement Readiness\n8.A.1 Purpose: Long-term capital appreciation for retirement at age 62 using tax-deferred 401(k) funds. Horizon: 26 years.\n8.A.2 Capital Deployment Timeline: USD 322,000.00 reallocated within the existing 401(k) account.\n8.A.3 Investment Vehicle Selection Highlights: Optimized for 18% target volatility.\n- VOO | VOO | US Equity | 44.34% | USD 142774.80\n- BTC | BTC | Bitcoin | 25.78% | USD 83011.60\n- EWJ | EWJ | Japan Equity | 16.38% | USD 52743.60\n- IEMU | IEMU | Dev. Europe ex UK Equity | 11.49% | USD 36997.80\n- BIL | BIL | Cash | 2.00% | USD 6440.00\n8.A.4 Risk Management Framework: Diversification across five asset classes to reduce concentration risk. Downside protection managed through non-correlated assets (BTC, EWJ).\n8.A.5 Policy Evaluation Metrics: 100% goal success probability; tracking against 16.68% expected return.\n\nPortfolio B: Education & Reserves\n8.B.1 Purpose: Fund Noah's college education (target amount TBD) and maintain emergency liquidity. Horizon: 17+ years.\n8.B.2 Capital Deployment Timeline: USD 353,000.00 from Brokerage ($275k) and Bank ($78k).\n8.B.3 Investment Vehicle Selection Highlights: Mirroring optimized household allocation for discipline.\n- VOO | VOO | US Equity | 44.34% | USD 156520.20\n- BTC | BTC | Bitcoin | 25.78% | USD 91003.40\n- EWJ | EWJ | Japan Equity | 16.38% | USD 57821.40\n- IEMU | IEMU | Dev. Europe ex UK Equity | 11.49% | USD 40559.70\n- BIL | BIL | Cash | 2.00% | USD 7060.00\n8.B.4 Risk Management Framework: Liquidity maintained in BIL and bank cash for emergency needs. Tax-loss harvesting to be utilized in the brokerage component.\n8.B.5 Policy Evaluation Metrics: Maintenance of 6-9 months core spending in liquid assets; annual review of education cost projections.
+A total of $675,000 USD will be deployed across all accounts: $275,000 in taxable brokerage, $322,000 in 401(k), $78,000 in bank savings, and initial funding for a new 529 plan. Deployment will occur immediately upon policy adoption, with phased contributions to the 529 plan from taxable assets.
 
-## Fee and Governance Notes
+### Portfolio Policy
 
-The portfolio will be reviewed quarterly for rebalancing needs if asset classes drift more than 5% from target. Governance is centralized at the household level to ensure unified discipline. Advisory fees are applied per the standard schedule.
+Adopt a unified, diversified portfolio across taxable and tax-advantaged accounts. Reduce US equity concentration in taxable brokerage, introduce international equity and fixed income, and allocate 401(k) to a balanced mix of equities and bonds. Establish a 529 plan for college savings, funded via periodic transfers from taxable assets.
 
-## Disclaimer and Acknowledgment
+### Investment Vehicle Selection Highlights
 
-Investment involves risk, including the loss of principal. Past performance is not indicative of future results. This policy is based on current financial data and assumptions of 3% growth in income and expenses. Clients acknowledge that education funding success is dependent on future cost quantification.
+{"recommended_securities":[{"security_name":"US Total Stock Market ETF","asset_class":"US Equity","allocation_pct":30.0,"allocation_amount":202500.0,"management_style":"passive","security_id":"VTI"},{"security_name":"International Equity ETF","asset_class":"International Equity","allocation_pct":15.0,"allocation_amount":101250.0,"management_style":"passive","security_id":"VXUS"},{"security_name":"US Aggregate Bond ETF","asset_class":"US Fixed Income","allocation_pct":25.0,"allocation_amount":168750.0,"management_style":"passive","security_id":"AGG"},{"security_name":"401(k) Diversified Target Date Fund","asset_class":"Multi-Asset (Retirement)","allocation_pct":25.0,"allocation_amount":168750.0,"management_style":"active","security_id":"TDF401K"},{"security_name":"529 College Savings Plan Portfolio","asset_class":"Education Savings","allocation_pct":5.0,"allocation_amount":33750.0,"management_style":"passive","security_id":"529TX"}]}
 
-## Tool Execution Log
+### Risk Management Framework
 
-t1: Deterministic cashflow confirmed 100% success on baseline.\nt2: Optimization at 22.5% volatility failed constraints.\nt3: Optimization at 18% volatility succeeded (Expected Return: 16.68%).\nt4: Final validation confirmed 100% success probability with optimized allocation and $381,240 terminal value.
+Diversification across asset classes and accounts reduces concentration risk. Emergency reserves are maintained at 6 months of expenses. Portfolio risk is targeted at a moderate level (approximate volatility 14%), with regular reviews for rebalancing and risk tolerance alignment.
+
+### Policy Evaluation Metrics
+
+Success will be measured by portfolio diversification (no single asset class >35%), maintenance of emergency reserves, progress toward college funding, and retirement readiness projections. Annual reviews will assess allocation discipline and tax efficiency.
+
+### Fee and Governance Notes
+
+Preference for low-cost, passive ETFs in taxable and 529 accounts; 401(k) utilizes available target date or diversified funds. Ongoing advisory and fund fees will be monitored to ensure cost efficiency.
+
+### Disclaimer and Acknowledgment
+
+This policy is based on information provided as of June 2024. Actual results may vary due to market, tax, or personal changes. No insurance or estate advice is included. Client review and acknowledgment required before implementation.
+
+### Tool Execution Log
+
+Three deterministic cashflow model runs (t1, t2, t3) confirmed no projected shortfall under current assumptions. Stress tests highlighted investment concentration and college savings gaps, which this policy addresses.
+
 
 ## Portfolio
-- Total Transfer: USD 675,000.00
+```json
+{
+  "currency": "USD",
+  "recommended_securities": [
+    {
+      "allocation_amount": 202500.0,
+      "allocation_pct": 30.0,
+      "asset_class": "US Equity",
+      "management_style": "passive",
+      "security_id": "VTI",
+      "security_name": "US Total Stock Market ETF"
+    },
+    {
+      "allocation_amount": 101250.0,
+      "allocation_pct": 15.0,
+      "asset_class": "International Equity",
+      "management_style": "passive",
+      "security_id": "VXUS",
+      "security_name": "International Equity ETF"
+    },
+    {
+      "allocation_amount": 168750.0,
+      "allocation_pct": 25.0,
+      "asset_class": "US Fixed Income",
+      "management_style": "passive",
+      "security_id": "AGG",
+      "security_name": "US Aggregate Bond ETF"
+    },
+    {
+      "allocation_amount": 168750.0,
+      "allocation_pct": 25.0,
+      "asset_class": "Multi-Asset (Retirement)",
+      "management_style": "active",
+      "security_id": "TDF401K",
+      "security_name": "401(k) Diversified Target Date Fund"
+    },
+    {
+      "allocation_amount": 33750.0,
+      "allocation_pct": 5.0,
+      "asset_class": "Education Savings",
+      "management_style": "passive",
+      "security_id": "529TX",
+      "security_name": "529 College Savings Plan Portfolio"
+    }
+  ],
+  "total_transfer": 675000.0
+}
+```
 
 ## Execution
-- Remedy: Carter Family Strategic Wealth Policy
-- Funding Source: JPMorgan Chase Bank
-- Capital Deployment Timeline: Immediate reallocation of existing $675,000 across 401(k) and taxable accounts.
+```json
+{
+  "capital_deployment_timeline": "Deploy $675,000 USD immediately across all accounts, with phased 529 plan contributions sourced from taxable brokerage.",
+  "funding_source": "JPMorgan Chase Bank, N.A. — Account ending in XXX",
+  "remedy_name": "Carter Family Unified Diversification and College Funding Policy"
+}
+```
+
+## Risk Framework
+```json
+"Diversify across equities, fixed income, and education savings vehicles; maintain emergency reserves; rebalance annually to target risk profile."
+```
+
+## Evaluation Metrics
+```json
+"Monitor diversification, emergency reserve adequacy, college savings progress, and retirement readiness annually."
+```
+
+## Fee And Governance Notes
+Utilize low-cost, passive ETFs where possible; monitor 401(k) and 529 plan fees; review policy annually.
+
+## Disclaimer
+Policy recommendations are based on current client data and market assumptions as of June 2024. Results may vary. No insurance or estate planning advice included.
+
+## Tool Execution Log
+```json
+"Three deterministic cashflow model runs (t1, t2, t3) confirmed no projected shortfall; stress tests identified and informed policy remedies for concentration and college savings gaps."
+```
+
+## Raw Step1 JSON
+```json
+{
+  "disclaimer": "Policy recommendations are based on current client data and market assumptions as of June 2024. Results may vary. No insurance or estate planning advice included.",
+  "evaluation_metrics": "Monitor diversification, emergency reserve adequacy, college savings progress, and retirement readiness annually.",
+  "execution": {
+    "capital_deployment_timeline": "Deploy $675,000 USD immediately across all accounts, with phased 529 plan contributions sourced from taxable brokerage.",
+    "funding_source": "JPMorgan Chase Bank, N.A. — Account ending in XXX",
+    "remedy_name": "Carter Family Unified Diversification and College Funding Policy"
+  },
+  "executive_summary": "This policy establishes a unified investment and funding strategy for Michael and Emily Carter, addressing portfolio concentration, tax efficiency, and college savings for their son Noah. The plan diversifies the taxable brokerage, introduces a dedicated 529 college savings account, and reallocates retirement assets for improved risk management and tax outcomes, while maintaining emergency reserves and supporting long-term lifestyle continuity.",
+  "fee_and_governance_notes": "Utilize low-cost, passive ETFs where possible; monitor 401(k) and 529 plan fees; review policy annually.",
+  "policy_title": "Carter Family Unified Diversification and College Funding Policy",
+  "portfolio": {
+    "currency": "USD",
+    "recommended_securities": [
+      {
+        "allocation_amount": 202500.0,
+        "allocation_pct": 30.0,
+        "asset_class": "US Equity",
+        "management_style": "passive",
+        "security_id": "VTI",
+        "security_name": "US Total Stock Market ETF"
+      },
+      {
+        "allocation_amount": 101250.0,
+        "allocation_pct": 15.0,
+        "asset_class": "International Equity",
+        "management_style": "passive",
+        "security_id": "VXUS",
+        "security_name": "International Equity ETF"
+      },
+      {
+        "allocation_amount": 168750.0,
+        "allocation_pct": 25.0,
+        "asset_class": "US Fixed Income",
+        "management_style": "passive",
+        "security_id": "AGG",
+        "security_name": "US Aggregate Bond ETF"
+      },
+      {
+        "allocation_amount": 168750.0,
+        "allocation_pct": 25.0,
+        "asset_class": "Multi-Asset (Retirement)",
+        "management_style": "active",
+        "security_id": "TDF401K",
+        "security_name": "401(k) Diversified Target Date Fund"
+      },
+      {
+        "allocation_amount": 33750.0,
+        "allocation_pct": 5.0,
+        "asset_class": "Education Savings",
+        "management_style": "passive",
+        "security_id": "529TX",
+        "security_name": "529 College Savings Plan Portfolio"
+      }
+    ],
+    "total_transfer": 675000.0
+  },
+  "risk_framework": "Diversify across equities, fixed income, and education savings vehicles; maintain emergency reserves; rebalance annually to target risk profile.",
+  "sections": [
+    {
+      "content": "Michael (36) and Emily Carter (34) are a married couple residing in Austin, Texas, with one child, Noah (age 1). Michael is a Senior Operations Manager with a high, stable income; Emily works part-time as a pediatric nurse. The household is focused on maintaining lifestyle, saving for Noah's education, and preparing for retirement.",
+      "id": "s1",
+      "title": "Client Background"
+    },
+    {
+      "content": "Combined gross income is $242,000/year (Michael: $188,000 salary + $18,000 bonus; Emily: $48,000). Net monthly take-home is $12,300–$13,100. Annual spending is $146,400. Assets include $78,000 in bank savings, $275,000 in taxable brokerage (100% US equities), and $322,000 in 401(k) (100% US treasuries). Liabilities: $472,000 mortgage at 3.375%, and student loans (minimum $280/month).",
+      "id": "s2",
+      "title": "Client Financial Snapshot"
+    },
+    {
+      "content": "Key needs: diversify taxable brokerage holdings, improve tax efficiency, establish dedicated college savings for Noah, maintain emergency reserves, and monitor retirement readiness.",
+      "id": "s3",
+      "title": "Client Financial Needs"
+    },
+    {
+      "content": "The Carters prefer maintaining a 6-month emergency reserve, avoiding over-concentration in taxable accounts, and seek disciplined, tax-efficient allocation. They value stability, lifestyle continuity, and are open to phased portfolio adjustments.",
+      "id": "s4",
+      "title": "Client Investment Preferences and Behavioral Considerations"
+    },
+    {
+      "content": "Current structure places all US equities in taxable accounts and all US treasuries in 401(k), which is suboptimal for tax efficiency. No explicit tax-exempt accounts for education exist yet. No insurance or estate exclusions specified.",
+      "id": "s5",
+      "title": "Taxes, Exclusions, and Exemptions"
+    },
+    {
+      "content": "Maintain at least 6 months of expenses in liquid emergency reserves. No insurance or estate planning requirements specified in current context.",
+      "id": "s6",
+      "title": "Other Special Requirements"
+    },
+    {
+      "content": "A total of $675,000 USD will be deployed across all accounts: $275,000 in taxable brokerage, $322,000 in 401(k), $78,000 in bank savings, and initial funding for a new 529 plan. Deployment will occur immediately upon policy adoption, with phased contributions to the 529 plan from taxable assets.",
+      "id": "s7",
+      "title": "Capital Deployment Timeline"
+    },
+    {
+      "content": "Adopt a unified, diversified portfolio across taxable and tax-advantaged accounts. Reduce US equity concentration in taxable brokerage, introduce international equity and fixed income, and allocate 401(k) to a balanced mix of equities and bonds. Establish a 529 plan for college savings, funded via periodic transfers from taxable assets.",
+      "id": "s8",
+      "title": "Portfolio Policy"
+    },
+    {
+      "content": "{\"recommended_securities\":[{\"security_name\":\"US Total Stock Market ETF\",\"asset_class\":\"US Equity\",\"allocation_pct\":30.0,\"allocation_amount\":202500.0,\"management_style\":\"passive\",\"security_id\":\"VTI\"},{\"security_name\":\"International Equity ETF\",\"asset_class\":\"International Equity\",\"allocation_pct\":15.0,\"allocation_amount\":101250.0,\"management_style\":\"passive\",\"security_id\":\"VXUS\"},{\"security_name\":\"US Aggregate Bond ETF\",\"asset_class\":\"US Fixed Income\",\"allocation_pct\":25.0,\"allocation_amount\":168750.0,\"management_style\":\"passive\",\"security_id\":\"AGG\"},{\"security_name\":\"401(k) Diversified Target Date Fund\",\"asset_class\":\"Multi-Asset (Retirement)\",\"allocation_pct\":25.0,\"allocation_amount\":168750.0,\"management_style\":\"active\",\"security_id\":\"TDF401K\"},{\"security_name\":\"529 College Savings Plan Portfolio\",\"asset_class\":\"Education Savings\",\"allocation_pct\":5.0,\"allocation_amount\":33750.0,\"management_style\":\"passive\",\"security_id\":\"529TX\"}]}",
+      "id": "s9",
+      "title": "Investment Vehicle Selection Highlights"
+    },
+    {
+      "content": "Diversification across asset classes and accounts reduces concentration risk. Emergency reserves are maintained at 6 months of expenses. Portfolio risk is targeted at a moderate level (approximate volatility 14%), with regular reviews for rebalancing and risk tolerance alignment.",
+      "id": "s10",
+      "title": "Risk Management Framework"
+    },
+    {
+      "content": "Success will be measured by portfolio diversification (no single asset class >35%), maintenance of emergency reserves, progress toward college funding, and retirement readiness projections. Annual reviews will assess allocation discipline and tax efficiency.",
+      "id": "s11",
+      "title": "Policy Evaluation Metrics"
+    },
+    {
+      "content": "Preference for low-cost, passive ETFs in taxable and 529 accounts; 401(k) utilizes available target date or diversified funds. Ongoing advisory and fund fees will be monitored to ensure cost efficiency.",
+      "id": "s12",
+      "title": "Fee and Governance Notes"
+    },
+    {
+      "content": "This policy is based on information provided as of June 2024. Actual results may vary due to market, tax, or personal changes. No insurance or estate advice is included. Client review and acknowledgment required before implementation.",
+      "id": "s13",
+      "title": "Disclaimer and Acknowledgment"
+    },
+    {
+      "content": "Three deterministic cashflow model runs (t1, t2, t3) confirmed no projected shortfall under current assumptions. Stress tests highlighted investment concentration and college savings gaps, which this policy addresses.",
+      "id": "s14",
+      "title": "Tool Execution Log"
+    }
+  ],
+  "tool_execution_log": "Three deterministic cashflow model runs (t1, t2, t3) confirmed no projected shortfall; stress tests identified and informed policy remedies for concentration and college savings gaps."
+}
+```
